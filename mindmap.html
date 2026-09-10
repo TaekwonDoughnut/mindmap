@@ -1,0 +1,1939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mind map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --mist:#EEF2EF; --ink:#15302A; --text:#1D2E2A; --muted:#5E716B; --faint:#8C9B96;
+  --line:#D5DDD8; --panel:rgba(255,255,255,.93); --hover:#EDF2EF; --press:#E1E9E4;
+  --canopy:#1E6B58; --focus:#2E8C84; --danger:#A8423A;
+  --shadow:0 1px 2px rgba(21,48,42,.07),0 12px 30px -16px rgba(21,48,42,.34);
+  --font:'Atkinson Hyperlegible',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--mist);color:var(--text);font-family:var(--font);
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit}
+
+/* ---------- canvas ---------- */
+#viewport{position:fixed;inset:0;overflow:hidden;touch-action:none;outline:none;background-color:var(--mist);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M16 13.6v4.8M13.6 16h4.8' stroke='%23C5D0C9' stroke-width='1.1' stroke-linecap='round'/%3E%3C/svg%3E")}
+#viewport.panning{cursor:grabbing}
+#world{position:absolute;left:0;top:0;transform-origin:0 0}
+#edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+#nodes,#overlay{position:absolute;left:0;top:0}
+
+/* ---------- topics ---------- */
+.node{position:absolute;left:0;top:0;border-radius:6px 6px 2px 2px;user-select:none;-webkit-user-select:none;animation:nodeIn .22s ease-out}
+@keyframes nodeIn{from{opacity:0}}
+.node .txt{position:absolute;white-space:pre;color:var(--text);text-align:left}
+.node.s-left .txt{text-align:right}
+.node.k-root{background:var(--ink);border-radius:16px;box-shadow:0 1px 1px rgba(21,48,42,.25),0 16px 32px -16px rgba(21,48,42,.6)}
+.node.k-root .txt{color:#fff;text-align:center}
+.node.k-l1{background:var(--tint);border-radius:11px;box-shadow:inset 0 0 0 1.5px var(--c)}
+.node.k-l1 .txt{text-align:center}
+.node.sel{z-index:2}
+.node.sel.k-root{box-shadow:0 0 0 4px rgba(21,48,42,.2),0 16px 32px -16px rgba(21,48,42,.6)}
+.node.sel.k-l1{box-shadow:inset 0 0 0 1.5px var(--c),0 0 0 4px var(--cr)}
+.node.sel.k-l2,.node.sel.k-l3{background:var(--ca)}
+.node.editing .txt{visibility:hidden}
+.node.drag-src{opacity:.3}
+.node.drop-into{outline:2px dashed var(--c);outline-offset:4px}
+.node.k-root.drop-into{outline-color:var(--ink)}
+
+/* collapse toggle, hidden-count badge, add button */
+.ctls{position:absolute;display:flex;align-items:center;gap:4px;height:22px;pointer-events:none}
+.ctls-r{left:calc(100% + 5px)}
+.ctls-l{right:calc(100% + 5px);flex-direction:row-reverse}
+.k-root>.ctls,.k-l1>.ctls{top:calc(50% - 11px)}
+.k-l2>.ctls,.k-l3>.ctls{top:calc(100% - 11px)}
+.node.s-right>.ctls-l,.node.s-left>.ctls-r{display:none}
+#world.one-sided .k-root>.ctls-l{display:none}
+.ctl{pointer-events:auto;display:none;align-items:center;justify-content:center;height:22px;min-width:22px;padding:0 6px;
+  border-radius:11px;border:1.5px solid var(--c);background:#fff;color:var(--c);font-size:12px;font-weight:700;line-height:1;cursor:pointer}
+.ctl svg{width:12px;height:12px;stroke-width:2.6}
+.ctl.fold,.ctl.plus{padding:0}
+.k-root .ctl{--c:var(--ink)}
+.ctl:hover{background:var(--c);color:#fff}
+.node.collapsed .ctl.badge{display:inline-flex}
+.node.has-kids:not(.collapsed):not(.k-root):hover .ctl.fold,
+.node.has-kids.sel:not(.collapsed):not(.k-root) .ctl.fold{display:inline-flex}
+.node.sel:not(.editing):not(.has-kids) .ctl.plus,.node.sel.collapsed:not(.editing) .ctl.plus,.node.k-root.sel:not(.editing) .ctl.plus{display:inline-flex}
+#world.dragging .ctl.fold,#world.dragging .ctl.plus{display:none}
+@media (hover:none){.node.has-kids:not(.collapsed):not(.sel):hover .ctl.fold{display:none}}
+
+.editor{position:absolute;display:none;margin:0;padding:0;border:0;outline:0;background:transparent;resize:none;overflow:hidden;
+  white-space:pre-wrap;overflow-wrap:break-word;color:var(--text);caret-color:var(--canopy);z-index:5}
+.editor.on{display:block}
+.editor::placeholder{color:var(--faint);opacity:1}
+.editor.k-root{color:#fff;caret-color:#fff}
+.editor.k-root::placeholder{color:rgba(255,255,255,.55)}
+.ghost{position:absolute;left:0;top:0;pointer-events:none;opacity:.92;animation:none;filter:drop-shadow(0 10px 18px rgba(21,48,42,.25))}
+.ghost .ctls{display:none}
+.drop-line{position:absolute;height:3px;border-radius:2px;display:none;pointer-events:none}
+
+/* ---------- floating bars ---------- */
+.bar{position:fixed;z-index:10;display:flex;align-items:center;gap:2px;padding:4px;background:var(--panel);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+.tl{top:14px;left:14px;padding:4px 14px 4px 8px;gap:8px;max-width:calc(100vw - 420px)}
+.tr{top:14px;right:14px}
+.bl{bottom:14px;left:14px}
+.br{bottom:14px;right:14px}
+.bc{bottom:14px;left:50%;transform:translateX(-50%);transition:opacity .16s ease,transform .16s ease}
+.bc.hidden{opacity:0;transform:translate(-50%,8px);pointer-events:none}
+.sep{width:1px;height:20px;background:var(--line);margin:0 5px;flex:none}
+.layout-group{display:inline-flex;gap:2px}
+
+.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 11px;border:0;border-radius:8px;
+  background:transparent;color:var(--text);font-size:14px;font-weight:400;white-space:nowrap;cursor:pointer}
+.btn svg{width:18px;height:18px;flex:none}
+.btn:hover{background:var(--hover)}
+.btn:active{background:var(--press)}
+.btn.icon{width:34px;padding:0}
+.btn.primary{background:var(--ink);color:#fff;font-weight:700}
+.btn.primary:hover{background:#224a41}
+.btn.danger{background:var(--danger);color:#fff;font-weight:700}
+.btn.danger:hover{background:#8f362f}
+.btn.on{background:var(--press)}
+.btn:disabled{opacity:.32;cursor:default;background:transparent}
+.btn:focus-visible,.ctl:focus-visible,.seg button:focus-visible,.swatch-btn:focus-visible,.map-open:focus-visible,#title:focus-visible,.check input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+#viewport:focus-visible{outline:none}
+.zoomlbl{min-width:58px;padding:0 6px;font-variant-numeric:tabular-nums;color:var(--muted)}
+
+.mark{width:26px;height:26px;flex:none}
+#title{font:inherit;font-size:15px;font-weight:700;color:var(--text);border:0;background:transparent;padding:5px 6px;border-radius:7px;min-width:60px;max-width:360px;text-overflow:ellipsis}
+#title:hover{background:var(--hover)}
+#title:focus{background:#fff;outline:2px solid var(--focus);outline-offset:0}
+#status{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* tooltips */
+[data-tip]::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%);
+  background:var(--ink);color:#fff;font-size:12.5px;font-weight:400;line-height:1.2;padding:6px 8px;border-radius:6px;white-space:nowrap;
+  pointer-events:none;opacity:0;visibility:hidden;transition:opacity .12s ease 0s;z-index:30}
+[data-tip]:hover::after{opacity:1;visibility:visible;transition-delay:.45s}
+.tr [data-tip]::after{bottom:auto;top:calc(100% + 9px);left:auto;right:0;transform:none}
+.bl [data-tip]::after{left:0;transform:none}
+.br [data-tip]::after{left:auto;right:0;transform:none}
+@media (hover:none){[data-tip]::after{display:none}}
+
+.swatch{width:18px;height:18px;border-radius:50%;background:var(--sw,#ccc);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+
+/* colour popover */
+.pop{position:fixed;z-index:20;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:10px;display:none;width:204px}
+.pop.open{display:block}
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.swatch-btn{width:40px;height:32px;border-radius:8px;border:0;background:var(--sw);cursor:pointer;position:relative}
+.swatch-btn.on::after{content:"";position:absolute;inset:-3px;border-radius:10px;box-shadow:0 0 0 2px var(--sw)}
+.pop-inherit{margin-top:10px;width:100%;height:32px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;font-size:13.5px}
+.pop-inherit:hover{background:var(--hover)}
+.pop-inherit.on{border-color:var(--ink);font-weight:700}
+
+/* ---------- dialogs ---------- */
+.scrim{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(21,48,42,.26)}
+.scrim.open{display:flex}
+.sheet{background:#fff;border-radius:16px;box-shadow:0 30px 70px -24px rgba(21,48,42,.5);width:min(740px,100%);max-height:calc(100vh - 36px);overflow:auto;padding:22px 24px 20px}
+.sheet.small{width:min(420px,100%)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin:-4px -6px 14px 0}
+.sheet h2{margin:0;font-size:19px;line-height:1.3}
+.sheet p{margin:0 0 6px;line-height:1.5;color:var(--muted);font-size:15px}
+.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.actions .btn{height:38px;padding:0 16px}
+.actions .btn.ghost{box-shadow:inset 0 0 0 1px var(--line)}
+
+.exp-body{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:22px;align-items:start}
+.preview{background:var(--mist);border-radius:12px;min-height:280px;display:flex;align-items:center;justify-content:center;padding:14px}
+.preview canvas{display:block;border-radius:3px;box-shadow:0 1px 2px rgba(21,48,42,.12),0 8px 20px -10px rgba(21,48,42,.35)}
+.field{margin-bottom:16px}
+.flabel{display:block;font-size:13.5px;color:var(--muted);margin-bottom:7px}
+.seg{display:inline-flex;flex-wrap:wrap;background:var(--mist);border-radius:9px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;height:30px;padding:0 12px;border-radius:7px;font-size:14px;color:var(--muted);cursor:pointer}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:#fff;color:var(--text);font-weight:700;box-shadow:0 1px 2px rgba(21,48,42,.14)}
+.check{display:flex;align-items:center;gap:9px;font-size:14.5px;cursor:pointer;margin:4px 0 14px}
+.check input{width:17px;height:17px;accent-color:var(--canopy);margin:0}
+.meta{font-size:14px;color:var(--text);margin:0;font-variant-numeric:tabular-nums}
+
+.keys{display:grid;grid-template-columns:auto 1fr;gap:10px 28px;margin:0;font-size:14.5px;line-height:1.45}
+.keys dt{color:var(--muted)}
+.keys dd{margin:0}
+kbd{font-family:var(--font);font-size:12.5px;background:var(--mist);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;white-space:nowrap}
+.note{margin-top:18px !important;font-size:14px !important}
+
+/* ---------- maps drawer ---------- */
+.drawer{position:fixed;top:0;bottom:0;left:0;z-index:40;width:340px;max-width:90vw;background:#fff;box-shadow:12px 0 40px -20px rgba(21,48,42,.45);
+  transform:translateX(-104%);transition:transform .22s ease;display:flex;flex-direction:column;padding:18px 16px 16px}
+.drawer.open{transform:none}
+.drawer .sheet-head{margin:0 0 14px 4px}
+.drawer-new{height:38px;width:100%;margin-bottom:12px}
+#mapList{list-style:none;margin:0;padding:0;overflow:auto;flex:1}
+.map-item{display:flex;align-items:center;gap:4px;border-radius:10px;padding:2px}
+.map-item:hover{background:var(--hover)}
+.map-item.current{background:var(--press)}
+.map-open{flex:1;min-width:0;text-align:left;border:0;background:transparent;padding:9px 10px;border-radius:8px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.map-title{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.map-meta{font-size:12.5px;color:var(--muted)}
+.map-item .btn{opacity:0}
+.map-item:hover .btn,.map-item .btn:focus-visible{opacity:1}
+.empty{color:var(--muted);font-size:14px;line-height:1.5;padding:8px 6px}
+.drawer-note{font-size:13px;line-height:1.5;color:var(--muted);margin:12px 4px 0}
+
+/* ---------- toast, file drop ---------- */
+.toast{position:fixed;left:50%;bottom:74px;z-index:60;transform:translate(-50%,6px);background:var(--ink);color:#fff;padding:9px 14px;border-radius:10px;
+  font-size:14px;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;max-width:calc(100vw - 32px)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.filedrop{position:fixed;inset:12px;z-index:70;display:none;align-items:center;justify-content:center;border:2px dashed var(--canopy);border-radius:18px;
+  background:rgba(238,242,239,.88);font-size:17px;font-weight:700;color:var(--canopy);pointer-events:none}
+.filedrop.on{display:flex}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+@media (max-width:820px){
+  .btn .lbl{display:none}
+  .tr .btn{width:34px;padding:0}
+  #status{display:none}
+  .tl{max-width:calc(100vw - 240px)}
+}
+@media (max-width:560px){
+  .bc{bottom:66px}
+  .zoomlbl{display:none}
+  .exp-body{grid-template-columns:minmax(0,1fr)}
+  .preview{min-height:200px}
+  .keys{grid-template-columns:1fr;gap:2px}
+  .keys dd{margin-bottom:10px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+<div id="viewport" tabindex="0" aria-label="Mind map canvas">
+  <div id="world">
+    <svg id="edges" aria-hidden="true"><g id="edgeLayer"></g><g id="ulLayer"></g></svg>
+    <div id="nodes"></div>
+    <div id="overlay"><div class="drop-line" id="dropLine"></div><textarea class="editor" id="editor" rows="1" spellcheck="true" aria-label="Topic text"></textarea></div>
+  </div>
+</div>
+
+<div class="bar tl">
+  <svg class="mark" viewBox="0 0 28 28" aria-hidden="true">
+    <path d="M14 14C19 14 18 6 25 6" stroke="#6F8F3A" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    <path d="M14 14C19 14 18 22 25 22" stroke="#4F6FA8" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    <path d="M14 14C9 14 10 8 3 8" stroke="#C58F2A" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    <path d="M14 14C9 14 10 20 3 20" stroke="#2E8C84" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    <circle cx="14" cy="14" r="5" fill="#15302A"/>
+  </svg>
+  <input id="title" value="Untitled map" aria-label="Map title" spellcheck="false" autocomplete="off">
+  <span id="status" aria-live="polite"></span>
+</div>
+
+<div class="bar tr">
+  <button class="btn" id="bMaps" hidden data-tip="Your saved maps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l8.5 4.5L12 12.5 3.5 8z"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5"/></svg><span class="lbl">Maps</span></button>
+  <button class="btn" id="bNew" data-tip="Start a new map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11.5v6M9 14.5h6"/></svg><span class="lbl">New</span></button>
+  <button class="btn" id="bOpen" data-tip="Open a map file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="lbl">Open</span></button>
+  <button class="btn" id="bSave" data-tip="Save to a file on your computer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg><span class="lbl">Save</span></button>
+  <span class="sep"></span>
+  <button class="btn primary" id="bExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 16l5-5 4 4 2.5-2.5 5.5 5.5"/><circle cx="15.5" cy="9" r="1.5"/></svg><span class="lbl">Export</span></button>
+</div>
+
+<div class="bar bc hidden" id="nodeBar" role="toolbar" aria-label="Topic actions">
+  <button class="btn" id="bAddChild" data-tip="Add subtopic (Tab)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="8.5" width="9" height="7" rx="2"/><path d="M11.5 12h3.5M19 8.5v7M15.5 12h7"/></svg><span class="lbl">Subtopic</span></button>
+  <button class="btn" id="bAddSib" data-tip="Add topic below (Enter)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="3" width="13" height="7" rx="2"/><path d="M12 13.5v7M8.5 17h7"/></svg><span class="lbl">Topic</span></button>
+  <span class="sep"></span>
+  <button class="btn icon" id="bColor" data-tip="Colour" aria-label="Colour" aria-haspopup="true"><span class="swatch" id="bColorSw"></span></button>
+  <button class="btn icon" id="bFold" data-tip="Collapse branch" aria-label="Collapse branch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12h7" /><path id="foldV" d="M12 8.5v7" style="display:none"/></svg></button>
+  <button class="btn icon" id="bDelete" data-tip="Delete topic (Delete)" aria-label="Delete topic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button>
+</div>
+
+<div class="bar bl">
+  <button class="btn icon" id="bUndo" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+  <button class="btn icon" id="bRedo" aria-label="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+  <span class="sep"></span>
+  <button class="btn icon" id="bHelp" data-tip="Keyboard shortcuts" aria-label="Keyboard shortcuts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.6a2.5 2.5 0 0 1 4.8.8c0 1.7-2.4 2-2.4 3.7M12 16.8v.1"/></svg></button>
+</div>
+
+<div class="bar br">
+  <span class="layout-group" role="group" aria-label="Layout">
+    <button class="btn icon" id="bLayMap" data-tip="Branches on both sides" aria-label="Branches on both sides"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.4"/><path d="M14.4 12c2.4 0 2.2-5 5.8-5M14.4 12c2.4 0 2.2 5 5.8 5M9.6 12c-2.4 0-2.2-5-5.8-5M9.6 12c-2.4 0-2.2 5-5.8 5"/></svg></button>
+    <button class="btn icon" id="bLayRight" data-tip="Branches on one side" aria-label="Branches on one side"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.4"/><path d="M7.4 12c3.4 0 3.2-6.5 7.6-6.5h5M7.4 12H20M7.4 12c3.4 0 3.2 6.5 7.6 6.5h5"/></svg></button>
+  </span>
+  <span class="sep"></span>
+  <button class="btn icon" id="bZoomOut" data-tip="Zoom out" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
+  <button class="btn zoomlbl" id="bZoomReset" data-tip="Zoom to 100%">100%</button>
+  <button class="btn icon" id="bZoomIn" data-tip="Zoom in" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg></button>
+  <button class="btn icon" id="bFit" aria-label="Fit map to screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/></svg></button>
+</div>
+
+<div class="pop" id="colorPop" role="dialog" aria-label="Choose a colour">
+  <div class="swatches" id="swatches"></div>
+  <button class="pop-inherit" id="popInherit">Match the branch</button>
+</div>
+
+<!-- export -->
+<div class="scrim" id="exportModal">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+    <div class="sheet-head"><h2 id="exportTitle">Export map</h2>
+      <button class="btn icon" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="exp-body">
+      <div class="preview" id="previewBox"><canvas id="preview"></canvas></div>
+      <div>
+        <div class="field"><span class="flabel">Format</span>
+          <div class="seg" data-opt="format"><button data-v="png">PNG image</button><button data-v="pdf">PDF</button></div></div>
+        <div class="field" data-for="png"><span class="flabel">Resolution</span>
+          <div class="seg" data-opt="scale"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="3">3×</button></div></div>
+        <div class="field" data-for="pdf"><span class="flabel">Page size</span>
+          <div class="seg" data-opt="page"><button data-v="a4">A4</button><button data-v="a3">A3</button><button data-v="fit">Fit to map</button></div></div>
+        <div class="field"><span class="flabel">Background</span>
+          <div class="seg" data-opt="bg"><button data-v="white">White</button><button data-v="mist">Canvas</button><button data-v="none" data-for="png">Transparent</button></div></div>
+        <label class="check"><input type="checkbox" id="expExpand"> Include collapsed branches</label>
+        <p class="meta" id="expMeta"></p>
+      </div>
+    </div>
+    <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn primary" id="expGo">Download PNG</button></div>
+  </div>
+</div>
+
+<!-- shortcuts -->
+<div class="scrim" id="helpModal">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle" style="width:min(640px,100%)">
+    <div class="sheet-head"><h2 id="helpTitle">Keyboard shortcuts</h2>
+      <button class="btn icon" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <dl class="keys" id="keys"></dl>
+    <p class="note" id="helpNote"></p>
+  </div>
+</div>
+
+<!-- confirm -->
+<div class="scrim" id="confirmModal">
+  <div class="sheet small" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmBody">
+    <h2 id="confirmTitle" style="margin-bottom:8px"></h2>
+    <p id="confirmBody"></p>
+    <div class="actions"><button class="btn ghost" id="confirmNo">Cancel</button><button class="btn danger" id="confirmYes">Continue</button></div>
+  </div>
+</div>
+
+<!-- maps drawer (only when in-app storage is available) -->
+<aside class="drawer" id="drawer" aria-label="Your maps" aria-hidden="true">
+  <div class="sheet-head"><h2>Your maps</h2>
+    <button class="btn icon" id="drawerClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <button class="btn primary drawer-new" id="drawerNew">New map</button>
+  <ul id="mapList"></ul>
+  <p class="drawer-note">Maps in this list save automatically while you use the app here. Use Save to keep a file on your computer.</p>
+</aside>
+
+<div class="toast" id="toast" role="status"></div>
+<div class="sr" id="sr" aria-live="polite"></div>
+<div class="filedrop" id="filedrop">Drop a map file to open it</div>
+<input type="file" id="fileInput" accept=".json,application/json" hidden>
+<script>
+(() => {
+'use strict';
+
+/* =========================================================
+   Constants
+   ========================================================= */
+const FONT = "'Atkinson Hyperlegible', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+const INK = '#15302A', TEXT = '#1D2E2A', MIST = '#EEF2EF';
+const PALETTE = [
+  ['Moss', '#6F8F3A'], ['Slate', '#4F6FA8'], ['Ochre', '#C58F2A'], ['Lichen', '#2E8C84'],
+  ['Heather', '#8C62A8'], ['Berry', '#B24A6B'], ['Glacier', '#3C98BF'], ['Bark', '#8B6B4E'],
+].map(([name, hex]) => ({ name, hex }));
+const LEVEL = {
+  root: { size: 20, lh: 27, weight: 700, padX: 24, padT: 14, padB: 14, maxW: 280, radius: 16 },
+  l1:   { size: 16, lh: 22, weight: 700, padX: 16, padT: 9,  padB: 10, maxW: 220, radius: 11 },
+  l2:   { size: 15, lh: 21, weight: 400, padX: 5,  padT: 5,  padB: 7,  maxW: 240 },
+  l3:   { size: 14, lh: 20, weight: 400, padX: 5,  padT: 4,  padB: 6,  maxW: 240 },
+};
+const PLACEHOLDER = 'New topic';
+const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
+const MOD = IS_MAC ? '⌘' : 'Ctrl';
+const MIN_K = 0.15, MAX_K = 3;
+const REDUCED = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+const SVGNS = 'http://www.w3.org/2000/svg';
+const ICON = {
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  minus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M5 12h14"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
+};
+
+const $ = (s, r = document) => r.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const r2 = v => Math.round(v * 100) / 100;
+
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function tint(h, amt = 0.16) { const [r, g, b] = hexRgb(h); const m = v => Math.round(v * amt + 255 * (1 - amt)); return `rgb(${m(r)},${m(g)},${m(b)})`; }
+function rgba(h, a) { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; }
+
+/* =========================================================
+   Document model
+   ========================================================= */
+let doc = null;
+let selectedId = null;
+const nodeById = new Map(), parentOf = new Map(), depthOf = new Map();
+
+function reindex() {
+  nodeById.clear(); parentOf.clear(); depthOf.clear();
+  (function walk(n, p, d) {
+    nodeById.set(n.id, n); parentOf.set(n.id, p); depthOf.set(n.id, d);
+    for (const c of n.children) walk(c, n, d + 1);
+  })(doc.root, null, 0);
+}
+const countDesc = n => n.children.reduce((s, c) => s + 1 + countDesc(c), 0);
+function isInside(id, ancestorId) { // true if id === ancestorId or id is below it
+  let n = nodeById.get(id);
+  while (n) { if (n.id === ancestorId) return true; n = parentOf.get(n.id); }
+  return false;
+}
+const mk = (text, kids = [], extra = {}) => ({ id: uid(), text, children: kids, ...extra });
+
+function blankDoc() {
+  return { id: uid(), title: 'Untitled map', layout: 'map', root: mk('Central topic') };
+}
+function sampleDoc() {
+  const P = i => PALETTE[i].hex;
+  return {
+    id: uid(), title: 'Getting started', layout: 'map',
+    root: mk('Your central topic', [
+      mk('Add topics', [
+        mk('Tab adds a subtopic', [mk('Like this one')]),
+        mk('Enter adds a topic below'),
+        mk('Or use + next to a selected topic'),
+      ], { side: 'right', color: P(0) }),
+      mk('Edit', [
+        mk('Double-click, or just start typing'),
+        mk('Shift + Enter adds a line break'),
+      ], { side: 'right', color: P(1) }),
+      mk('Arrange', [
+        mk('Drag a topic onto another to move it'),
+        mk('Collapse a branch to tidy up', [mk('Hidden topic'), mk('Another one')], { collapsed: true }),
+        mk('Pick a colour for any branch'),
+      ], { side: 'left', color: P(2) }),
+      mk('Save and export', [
+        mk(`${MOD} + S saves a file on your computer`),
+        mk('Open loads it again'),
+        mk('Export as PNG or PDF'),
+      ], { side: 'left', color: P(3) }),
+    ]),
+  };
+}
+
+/* =========================================================
+   History (snapshot based)
+   ========================================================= */
+const history = { undo: [], redo: [] };
+const snap = () => JSON.stringify({ root: doc.root, layout: doc.layout });
+function restoreSnap(s, sel) {
+  const o = JSON.parse(s);
+  doc.root = o.root; doc.layout = o.layout;
+  reindex();
+  selectedId = nodeById.has(sel) ? sel : doc.root.id;
+}
+function pushHistory(state, sel) {
+  history.undo.push({ s: state, sel });
+  if (history.undo.length > 200) history.undo.shift();
+  history.redo = [];
+}
+function commit(mutate, sel) {
+  pushHistory(snap(), selectedId);
+  mutate();
+  reindex();
+  if (sel !== undefined) selectedId = sel;
+  render(true);
+  markDirty();
+}
+function undo() {
+  if (edit) finishEdit(true);
+  const h = history.undo.pop(); if (!h) return;
+  history.redo.push({ s: snap(), sel: selectedId });
+  restoreSnap(h.s, h.sel); render(true); markDirty();
+}
+function redo() {
+  if (edit) finishEdit(true);
+  const h = history.redo.pop(); if (!h) return;
+  history.undo.push({ s: snap(), sel: selectedId });
+  restoreSnap(h.s, h.sel); render(true); markDirty();
+}
+
+/* =========================================================
+   Text measuring and wrapping (shared by screen and export)
+   ========================================================= */
+const mctx = document.createElement('canvas').getContext('2d');
+const fontOf = st => `${st.weight} ${st.size}px ${FONT}`;
+let wrapCache = new Map();
+function wrap(text, kind) {
+  const key = kind + '\u0001' + text;
+  const hit = wrapCache.get(key); if (hit) return hit;
+  const st = LEVEL[kind];
+  mctx.font = fontOf(st);
+  const W = t => mctx.measureText(t).width;
+  const lines = [];
+  for (const para of String(text).split('\n')) {
+    let line = '';
+    for (let w of para.split(' ')) {
+      const test = line ? line + ' ' + w : w;
+      if (W(test) <= st.maxW) { line = test; continue; }
+      if (line) lines.push(line);
+      line = '';
+      while (w.length > 1 && W(w) > st.maxW) {        // break very long words
+        let lo = 1, hi = w.length - 1;
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (W(w.slice(0, mid)) <= st.maxW) lo = mid; else hi = mid - 1; }
+        lines.push(w.slice(0, lo)); w = w.slice(lo);
+      }
+      line = w;
+    }
+    lines.push(line);
+  }
+  let width = 0;
+  for (const l of lines) width = Math.max(width, W(l));
+  const res = { lines, width };
+  if (wrapCache.size > 5000) wrapCache = new Map();
+  wrapCache.set(key, res);
+  return res;
+}
+
+/* =========================================================
+   Layout
+   ========================================================= */
+const kindOf = d => (d === 0 ? 'root' : d === 1 ? 'l1' : d === 2 ? 'l2' : 'l3');
+const gapX = d => (d === 0 ? 72 : d === 1 ? 44 : 34);   // parent at depth d -> its children
+const gapY = d => (d === 1 ? 22 : d === 2 ? 10 : 7);    // between siblings at depth d
+const edgeW = d => (d === 2 ? 2.6 : d === 3 ? 2.1 : 1.7);
+
+function computeLayout(d, { expandAll = false } = {}) {
+  const geo = new Map(), order = [];
+  const oneSided = d.layout === 'right';
+
+  const make = (n, depth, side, color, parentId) => {
+    const kind = kindOf(depth), st = LEVEL[kind];
+    const wr = wrap(n.text, kind);
+    const tw = n.text.length ? wr.width : wrap(PLACEHOLDER, kind).width;
+    const g = {
+      id: n.id, kind, depth, side, parentId, color,
+      lines: wr.lines, tw,
+      w: Math.ceil(tw + st.padX * 2 + 1),
+      h: wr.lines.length * st.lh + st.padT + st.padB,
+      x: 0, y: 0, th: 0, kidsH: 0, kids: [],
+      hasKids: n.children.length > 0,
+      collapsed: depth > 0 && !expandAll && !!n.collapsed && n.children.length > 0,
+      hidden: 0,
+    };
+    geo.set(n.id, g); order.push(g);
+    return g;
+  };
+  const build = (n, depth, side, inherited, parentId) => {
+    const g = make(n, depth, side, n.color || inherited, parentId);
+    if (g.collapsed) g.hidden = countDesc(n);
+    else for (const c of n.children) g.kids.push(build(c, depth + 1, side, g.color, n.id));
+    if (g.kids.length) {
+      g.kidsH = g.kids.reduce((s, k) => s + k.th, 0) + gapY(depth + 1) * (g.kids.length - 1);
+      g.th = Math.max(g.h, g.kidsH);
+    } else g.th = g.h;
+    return g;
+  };
+  const place = (g, x, top) => {
+    g.y = top + (g.th - g.h) / 2;
+    g.x = g.side === 'left' ? x - g.w : x;
+    if (!g.kids.length) return;
+    let cy = top + (g.th - g.kidsH) / 2;
+    const cx = g.side === 'left' ? g.x - gapX(g.depth) : g.x + g.w + gapX(g.depth);
+    for (const k of g.kids) { place(k, cx, cy); cy += k.th + gapY(g.depth + 1); }
+  };
+
+  const rn = d.root;
+  const rg = make(rn, 0, null, INK, null);
+  rg.x = -rg.w / 2; rg.y = -rg.h / 2;
+  const sides = { right: [], left: [] };
+  rn.children.forEach((c, i) => {
+    const side = oneSided ? 'right' : (c.side === 'left' ? 'left' : 'right');
+    const g = build(c, 1, side, PALETTE[i % PALETTE.length].hex, rn.id);
+    sides[side].push(g); rg.kids.push(g);
+  });
+  for (const side of ['right', 'left']) {
+    const list = sides[side]; if (!list.length) continue;
+    const total = list.reduce((s, k) => s + k.th, 0) + gapY(1) * (list.length - 1);
+    let cy = -total / 2;
+    const x = side === 'left' ? rg.x - gapX(0) : rg.x + rg.w + gapX(0);
+    for (const k of list) { place(k, x, cy); cy += k.th + gapY(1); }
+  }
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const g of order) {
+    x0 = Math.min(x0, g.x); y0 = Math.min(y0, g.y);
+    x1 = Math.max(x1, g.x + g.w); y1 = Math.max(y1, g.y + g.h);
+    if (g.collapsed) { if (g.side === 'left') x0 = Math.min(x0, g.x - 46); else x1 = Math.max(x1, g.x + g.w + 46); }
+  }
+  return { geo, order, bounds: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+}
+
+/* Connector geometry: shared by SVG (screen) and canvas (export) */
+function outPt(g, x, y, childSide) {
+  if (g.kind === 'root') return { x: childSide === 'left' ? x + 14 : x + g.w - 14, y: y + g.h / 2 };
+  const right = g.side !== 'left';
+  return { x: right ? x + g.w : x, y: g.kind === 'l1' ? y + g.h / 2 : y + g.h };
+}
+function inPt(g, x, y) {
+  const right = g.side !== 'left';
+  return { x: right ? x : x + g.w, y: g.kind === 'l1' ? y + g.h / 2 : y + g.h };
+}
+function edgeD(pg, px, py, cg, cx, cy) {
+  const a = outPt(pg, px, py, cg.side), b = inPt(cg, cx, cy), m = (a.x + b.x) / 2;
+  if (cg.depth === 1) return taperD(a, b, m, 5.5, 1.6);   // tapered stem from the central topic
+  return `M${r2(a.x)},${r2(a.y)}C${r2(m)},${r2(a.y)} ${r2(m)},${r2(b.y)} ${r2(b.x)},${r2(b.y)}`;
+}
+// Sample the curve and offset along its normal, so the stem keeps an even taper even where it runs steep
+function taperD(a, b, m, w0, w1) {
+  const N = 26, left = [], right = [], dyAB = b.y - a.y;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, u = 1 - t;
+    const x = u * u * u * a.x + 3 * u * u * t * m + 3 * u * t * t * m + t * t * t * b.x;
+    const y = u * u * u * a.y + 3 * u * u * t * a.y + 3 * u * t * t * b.y + t * t * t * b.y;
+    const dx = 3 * u * u * (m - a.x) + 3 * t * t * (b.x - m), dy = 6 * u * t * dyAB;
+    const len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+    const hw = w1 + (w0 - w1) * Math.pow(u, 1.3);
+    left.push(`${r2(x + nx * hw)},${r2(y + ny * hw)}`);
+    right.push(`${r2(x - nx * hw)},${r2(y - ny * hw)}`);
+  }
+  return 'M' + left.join('L') + 'L' + right.reverse().join('L') + 'Z';
+}
+const ulD = (g, x, y) => `M${r2(x)},${r2(y + g.h)}H${r2(x + g.w)}`;
+
+/* =========================================================
+   Screen rendering (keyed DOM + animated positions)
+   ========================================================= */
+const viewport = $('#viewport'), world = $('#world');
+const edgeLayer = $('#edgeLayer'), ulLayer = $('#ulLayer'), nodesLayer = $('#nodes'), overlay = $('#overlay');
+const editor = $('#editor'), dropLine = $('#dropLine');
+const els = new Map(), edgeEls = new Map(), ulEls = new Map();
+let layout = null;
+let shown = new Map();   // id -> {x, y} currently on screen
+let anim = null;
+let edit = null;         // active text edit
+let drag = null;         // active drag
+
+function createNodeEl(id) {
+  const el = document.createElement('div');
+  el.dataset.id = id;
+  const txt = document.createElement('div'); txt.className = 'txt';
+  el.appendChild(txt); el._txt = txt;
+  for (const s of ['r', 'l']) {
+    const c = document.createElement('div');
+    c.className = 'ctls ctls-' + s;
+    c.innerHTML =
+      `<button class="ctl fold" tabindex="-1" aria-label="Collapse branch" data-act="fold">${ICON.minus}</button>` +
+      `<button class="ctl badge" tabindex="-1" aria-label="Expand branch" data-act="fold"></button>` +
+      `<button class="ctl plus" tabindex="-1" aria-label="Add subtopic" data-act="add" data-side="${s === 'r' ? 'right' : 'left'}">${ICON.plus}</button>`;
+    el.appendChild(c);
+  }
+  return el;
+}
+
+function visibleAncestor(id) {
+  let n = nodeById.get(id);
+  while (n && !layout.geo.has(n.id)) n = parentOf.get(n.id);
+  return n ? n.id : doc.root.id;
+}
+
+function sync() {
+  const L = layout, seen = new Set();
+  world.classList.toggle('one-sided', doc.layout === 'right');
+  for (const g of L.order) {
+    seen.add(g.id);
+    let el = els.get(g.id);
+    if (!el) { el = createNodeEl(g.id); nodesLayer.appendChild(el); els.set(g.id, el); }
+    const st = LEVEL[g.kind];
+    let cls = `node k-${g.kind} s-${g.side || 'c'}`;
+    if (g.id === selectedId) cls += ' sel';
+    if (g.collapsed) cls += ' collapsed';
+    if (g.hasKids) cls += ' has-kids';
+    if (edit && edit.id === g.id) cls += ' editing';
+    if (drag && drag.active && drag.id === g.id) cls += ' drag-src';
+    if (drag && drag.active && drag.target && drag.target.mode === 'child' && drag.target.id === g.id) cls += ' drop-into';
+    if (el.className !== cls) el.className = cls;
+    const sig = `${g.w}|${g.h}|${g.color}|${g.kind}`;
+    if (el._sig !== sig) {
+      el._sig = sig;
+      el.style.width = g.w + 'px'; el.style.height = g.h + 'px';
+      el.style.setProperty('--c', g.color);
+      el.style.setProperty('--tint', tint(g.color));
+      el.style.setProperty('--ca', rgba(g.color, 0.13));
+      el.style.setProperty('--cr', rgba(g.color, 0.28));
+      const t = el._txt.style;
+      t.font = fontOf(st); t.lineHeight = st.lh + 'px';
+      t.left = st.padX + 'px'; t.right = st.padX + 'px'; t.top = st.padT + 'px';
+    }
+    const key = g.lines.join('\n');
+    if (el._key !== key) {
+      el._key = key; el._txt.textContent = '';
+      for (const l of g.lines) { const dv = document.createElement('div'); dv.textContent = l || '\u200b'; el._txt.appendChild(dv); }
+    }
+    if (g.collapsed) for (const b of el.querySelectorAll('.badge')) b.textContent = g.hidden;
+
+    if (g.parentId) {
+      let p = edgeEls.get(g.id);
+      if (!p) { p = document.createElementNS(SVGNS, 'path'); edgeLayer.appendChild(p); edgeEls.set(g.id, p); }
+      if (g.depth === 1) { p.setAttribute('fill', g.color); p.setAttribute('stroke', 'none'); }
+      else {
+        p.setAttribute('fill', 'none'); p.setAttribute('stroke', g.color);
+        p.setAttribute('stroke-width', edgeW(g.depth)); p.setAttribute('stroke-linecap', 'round');
+      }
+    }
+    if (g.depth >= 2) {
+      let u = ulEls.get(g.id);
+      if (!u) { u = document.createElementNS(SVGNS, 'path'); u.setAttribute('fill', 'none'); u.setAttribute('stroke-linecap', 'round'); ulLayer.appendChild(u); ulEls.set(g.id, u); }
+      u.setAttribute('stroke', g.color); u.setAttribute('stroke-width', edgeW(g.depth));
+    }
+  }
+  for (const [id, el] of els) if (!seen.has(id)) { el.remove(); els.delete(id); }
+  for (const [id, p] of edgeEls) { const g = L.geo.get(id); if (!g || !g.parentId) { p.remove(); edgeEls.delete(id); } }
+  for (const [id, u] of ulEls) { const g = L.geo.get(id); if (!g || g.depth < 2) { u.remove(); ulEls.delete(id); } }
+}
+
+function applyPositions(posOf) {
+  const L = layout, next = new Map();
+  for (const g of L.order) {
+    const p = posOf(g); next.set(g.id, p);
+    els.get(g.id).style.transform = `translate(${r2(p.x)}px,${r2(p.y)}px)`;
+  }
+  shown = next;
+  for (const g of L.order) {
+    const p = next.get(g.id);
+    if (g.parentId) {
+      const pg = L.geo.get(g.parentId), pp = next.get(g.parentId);
+      edgeEls.get(g.id).setAttribute('d', edgeD(pg, pp.x, pp.y, g, p.x, p.y));
+    }
+    if (g.depth >= 2) ulEls.get(g.id).setAttribute('d', ulD(g, p.x, p.y));
+  }
+  if (edit) positionEditor();
+}
+
+function render(animate = true) {
+  layout = computeLayout(doc);
+  if (selectedId && !layout.geo.has(selectedId)) selectedId = visibleAncestor(selectedId);
+  sync();
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  const L = layout;
+  if (!animate || REDUCED.matches || !shown.size) {
+    applyPositions(g => ({ x: g.x, y: g.y }));
+  } else {
+    const from = new Map();
+    for (const g of L.order) {
+      let p = shown.get(g.id);
+      if (!p) { // new topics grow out of the nearest visible ancestor
+        let a = g.parentId;
+        while (a && !shown.has(a)) a = L.geo.get(a) ? L.geo.get(a).parentId : null;
+        if (a) {
+          const ap = shown.get(a), ag = L.geo.get(a);
+          p = { x: g.side === 'left' ? ap.x - g.w * 0.25 : ap.x + ag.w - g.w * 0.75, y: ap.y + ag.h / 2 - g.h / 2 };
+        } else p = { x: g.x, y: g.y };
+      }
+      from.set(g.id, p);
+    }
+    const t0 = performance.now(), D = 240;
+    const tick = now => {
+      const t = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - t, 3);
+      applyPositions(g => { const f = from.get(g.id); return { x: f.x + (g.x - f.x) * e, y: f.y + (g.y - f.y) * e }; });
+      anim = t < 1 ? requestAnimationFrame(tick) : null;
+    };
+    tick(t0);
+  }
+  updateUI();
+}
+
+/* =========================================================
+   View: pan and zoom
+   ========================================================= */
+const view = { k: 1, tx: 0, ty: 0 };
+let viewAnim = null;
+const zoomLbl = $('#bZoomReset');
+
+function applyView() {
+  world.style.transform = `translate(${r2(view.tx)}px,${r2(view.ty)}px) scale(${view.k})`;
+  // adaptive survey grid: keeps marks 24–48px apart at any zoom
+  const n = Math.round(Math.log2(36 / (32 * view.k)));
+  const s = 32 * view.k * Math.pow(2, n);
+  viewport.style.backgroundSize = `${r2(s)}px ${r2(s)}px`;
+  viewport.style.backgroundPosition = `${r2(view.tx)}px ${r2(view.ty)}px`;
+  zoomLbl.textContent = Math.round(view.k * 100) + '%';
+}
+function stopViewAnim() { if (viewAnim) { cancelAnimationFrame(viewAnim); viewAnim = null; } }
+function setView(target, animate = true) {
+  stopViewAnim();
+  if (!animate || REDUCED.matches) { Object.assign(view, target); applyView(); return; }
+  const from = { ...view }, t0 = performance.now(), D = 280;
+  const tick = now => {
+    const t = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - t, 3);
+    view.k = from.k + (target.k - from.k) * e;
+    view.tx = from.tx + (target.tx - from.tx) * e;
+    view.ty = from.ty + (target.ty - from.ty) * e;
+    applyView();
+    viewAnim = t < 1 ? requestAnimationFrame(tick) : null;
+  };
+  viewAnim = requestAnimationFrame(tick);
+}
+const toWorld = (sx, sy) => ({ x: (sx - view.tx) / view.k, y: (sy - view.ty) / view.k });
+function zoomAt(factor, sx, sy, animate = false) {
+  const k = clamp(view.k * factor, MIN_K, MAX_K), f = k / view.k;
+  setView({ k, tx: sx - (sx - view.tx) * f, ty: sy - (sy - view.ty) * f }, animate);
+}
+const zoomCenter = f => zoomAt(f, innerWidth / 2, innerHeight / 2, true);
+function fitView(animate = true) {
+  const b = layout.bounds, vw = innerWidth, vh = innerHeight;
+  const top = 78, bottom = 92, side = 44;
+  const aw = Math.max(80, vw - side * 2), ah = Math.max(80, vh - top - bottom);
+  const k = clamp(Math.min(aw / b.w, ah / b.h), MIN_K, 1.15);
+  setView({ k, tx: side + (aw - b.w * k) / 2 - b.x * k, ty: top + (ah - b.h * k) / 2 - b.y * k }, animate);
+}
+function ensureVisible(id) {
+  const g = layout && layout.geo.get(id); if (!g) return;
+  const mX = 70, mT = 80, mB = 90, vw = innerWidth, vh = innerHeight;
+  const x0 = g.x * view.k + view.tx, y0 = g.y * view.k + view.ty;
+  const x1 = (g.x + g.w) * view.k + view.tx, y1 = (g.y + g.h) * view.k + view.ty;
+  let dx = 0, dy = 0;
+  if (x1 - x0 > vw - 2 * mX) dx = mX - x0; else if (x0 < mX) dx = mX - x0; else if (x1 > vw - mX) dx = vw - mX - x1;
+  if (y0 < mT) dy = mT - y0; else if (y1 > vh - mB) dy = vh - mB - y1;
+  if (dx || dy) setView({ k: view.k, tx: view.tx + dx, ty: view.ty + dy });
+}
+
+/* =========================================================
+   Text editing
+   ========================================================= */
+function positionEditor() {
+  const g = layout.geo.get(edit.id), p = shown.get(edit.id); if (!g || !p) return;
+  const st = LEVEL[g.kind], slack = 8;
+  const inner = g.w - st.padX * 2;
+  const align = (g.kind === 'root' || g.kind === 'l1') ? 'center' : (g.side === 'left' ? 'right' : 'left');
+  let left = p.x + st.padX;
+  if (align === 'center') left -= slack / 2; else if (align === 'right') left -= slack;
+  editor.style.left = r2(left) + 'px';
+  editor.style.top = r2(p.y + st.padT) + 'px';
+  editor.style.width = r2(inner + slack) + 'px';
+  editor.style.height = (g.h - st.padT - st.padB) + 'px';
+  editor.style.textAlign = align;
+  editor.scrollTop = 0;
+}
+function startEdit(id, opts = {}) {
+  if (edit) finishEdit(true);
+  const n = nodeById.get(id); if (!n || !layout.geo.has(id)) return;
+  closeColorPop();
+  selectedId = id;
+  edit = {
+    id, isNew: !!opts.isNew, original: n.text,
+    before: opts.before || snap(),
+    beforeSel: opts.beforeSel !== undefined ? opts.beforeSel : id,
+  };
+  const g = layout.geo.get(id), st = LEVEL[g.kind];
+  editor.className = 'editor on k-' + g.kind;
+  editor.style.font = fontOf(st);
+  editor.style.lineHeight = st.lh + 'px';
+  editor.placeholder = PLACEHOLDER;
+  if (opts.initial != null) { n.text = opts.initial; editor.value = n.text; render(false); }
+  else { editor.value = n.text; sync(); positionEditor(); updateUI(); }
+  editor.focus({ preventScroll: true });
+  if (opts.initial != null) editor.setSelectionRange(editor.value.length, editor.value.length);
+  else editor.select();
+}
+function finishEdit(keep = true) {
+  if (!edit) return;
+  const e = edit; edit = null;
+  editor.classList.remove('on');
+  const n = nodeById.get(e.id);
+  if (n) {
+    const text = n.text.replace(/^\s+|\s+$/g, '');
+    if (!keep || !text) {
+      if (e.isNew) restoreSnap(e.before, e.beforeSel);   // an empty new topic is dropped
+      else n.text = e.original;
+    } else {
+      n.text = text;
+      if (e.isNew || text !== e.original) { pushHistory(e.before, e.beforeSel); markDirty(); }
+    }
+  }
+  render(true);
+  if (document.activeElement === editor) viewport.focus({ preventScroll: true });
+}
+editor.addEventListener('input', () => {
+  if (!edit) return;
+  const n = nodeById.get(edit.id); if (!n) return;
+  n.text = editor.value;
+  render(false);
+});
+editor.addEventListener('keydown', e => {
+  if (!edit || e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finishEdit(true); }
+  else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
+  else if (e.key === 'Tab') {
+    e.preventDefault();
+    const id = edit.id; finishEdit(true);
+    addChild(nodeById.has(id) ? id : (selectedId || doc.root.id));
+  }
+});
+editor.addEventListener('blur', () => { if (edit) finishEdit(true); });
+
+/* =========================================================
+   Commands
+   ========================================================= */
+function nextColor() {
+  const used = new Map(PALETTE.map(p => [p.hex, 0]));
+  for (const c of doc.root.children) if (used.has(c.color)) used.set(c.color, used.get(c.color) + 1);
+  let best = PALETTE[0].hex, min = Infinity;
+  for (const p of PALETTE) { const u = used.get(p.hex); if (u < min) { min = u; best = p.hex; } }
+  return best;
+}
+function pickSide() {
+  let R = 0, Lh = 0;
+  for (const c of doc.root.children) {
+    const g = layout.geo.get(c.id), h = g ? g.th : 30;
+    if (c.side === 'left') Lh += h; else R += h;
+  }
+  return Lh < R ? 'left' : 'right';
+}
+function addChild(pid, side) {
+  if (edit) finishEdit(true);
+  const parent = nodeById.get(pid); if (!parent) return;
+  const before = snap(), beforeSel = selectedId;
+  const n = mk('');
+  if (parent === doc.root) { n.side = side || pickSide(); n.color = nextColor(); }
+  delete parent.collapsed;
+  parent.children.push(n);
+  reindex(); selectedId = n.id;
+  render(true);
+  ensureVisible(n.id);
+  startEdit(n.id, { isNew: true, before, beforeSel });
+}
+function addSibling(id) {
+  if (edit) finishEdit(true);
+  const n = nodeById.get(id), parent = parentOf.get(id);
+  if (!n) return;
+  if (!parent) return addChild(id);
+  const before = snap(), beforeSel = selectedId;
+  const s = mk('');
+  if (parent === doc.root) { s.side = n.side === 'left' ? 'left' : 'right'; s.color = nextColor(); }
+  parent.children.splice(parent.children.indexOf(n) + 1, 0, s);
+  reindex(); selectedId = s.id;
+  render(true);
+  ensureVisible(s.id);
+  startEdit(s.id, { isNew: true, before, beforeSel });
+}
+function deleteTopic(id) {
+  if (edit) finishEdit(true);
+  const n = nodeById.get(id), parent = parentOf.get(id);
+  if (!n || !parent) return;
+  const i = parent.children.indexOf(n);
+  let sibs = parent.children;
+  if (parent === doc.root) { const side = layout.geo.get(id).side; sibs = sibs.filter(c => layout.geo.get(c.id).side === side); }
+  const j = sibs.indexOf(n);
+  const next = sibs[j + 1] || sibs[j - 1] || parent;
+  commit(() => { parent.children.splice(i, 1); }, next.id);
+}
+function toggleCollapse(id) {
+  const n = nodeById.get(id);
+  if (!n || n === doc.root || !n.children.length) return;
+  if (edit) finishEdit(true);
+  const expanding = !!n.collapsed;
+  commit(() => { if (n.collapsed) delete n.collapsed; else n.collapsed = true; }, id);
+  if (expanding) revealBranch(id);
+}
+// After expanding, pan so the opened branch is on screen (as far as it fits)
+function revealBranch(id) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const g of layout.order) {
+    if (!isInside(g.id, id)) continue;
+    x0 = Math.min(x0, g.x); y0 = Math.min(y0, g.y); x1 = Math.max(x1, g.x + g.w); y1 = Math.max(y1, g.y + g.h);
+  }
+  const g = layout.geo.get(id);
+  const mX = 50, mT = 80, mB = 90, vw = innerWidth, vh = innerHeight, k = view.k;
+  const sx0 = x0 * k + view.tx, sx1 = x1 * k + view.tx, sy0 = y0 * k + view.ty, sy1 = y1 * k + view.ty;
+  let dx = 0, dy = 0;
+  if (sx1 - sx0 <= vw - 2 * mX) { if (sx0 < mX) dx = mX - sx0; else if (sx1 > vw - mX) dx = vw - mX - sx1; }
+  else dx = g.side === 'left' ? (vw - mX) - (g.x + g.w) * k - view.tx : mX - g.x * k - view.tx;
+  if (sy1 - sy0 <= vh - mT - mB) { if (sy0 < mT) dy = mT - sy0; else if (sy1 > vh - mB) dy = vh - mB - sy1; }
+  if (dx || dy) setView({ k, tx: view.tx + dx, ty: view.ty + dy });
+}
+function setColor(id, hex) {
+  const n = nodeById.get(id); if (!n || n === doc.root) return;
+  if (depthOf.get(id) === 1 && !hex) return;
+  if ((n.color || null) === (hex || null)) return;
+  commit(() => { if (hex) n.color = hex; else delete n.color; }, id);
+}
+function setLayout(v) {
+  if (doc.layout === v) return;
+  commit(() => { doc.layout = v; });
+  fitView(true);
+}
+function moveTopic(id, t) {
+  const n = nodeById.get(id), target = nodeById.get(t.id);
+  if (!n || !target || n === doc.root || isInside(t.id, id)) return;
+  const oldParent = parentOf.get(id), oldDepth = depthOf.get(id);
+  const newParent = t.mode === 'child' ? target : parentOf.get(t.id);
+  if (!newParent) return;
+  commit(() => {
+    oldParent.children.splice(oldParent.children.indexOf(n), 1);
+    let index;
+    if (t.mode === 'child') { delete target.collapsed; index = target.children.length; }
+    else index = newParent.children.indexOf(target) + (t.mode === 'after' ? 1 : 0);
+    newParent.children.splice(index, 0, n);
+    if (newParent === doc.root) {
+      n.side = t.mode === 'child' ? (t.side || 'right') : (target.side === 'left' ? 'left' : 'right');
+      if (!n.color) n.color = nextColor();
+    } else {
+      delete n.side;
+      if (oldDepth === 1) delete n.color;   // take on the new branch's colour
+    }
+  }, id);
+}
+
+/* =========================================================
+   Toolbar state
+   ========================================================= */
+const nodeBar = $('#nodeBar');
+const B = id => document.getElementById(id);
+function updateUI() {
+  const n = selectedId ? nodeById.get(selectedId) : null;
+  const g = n && layout ? layout.geo.get(n.id) : null;
+  nodeBar.classList.toggle('hidden', !g);
+  if (g) {
+    const isRoot = n === doc.root;
+    B('bAddSib').disabled = isRoot;
+    B('bColor').disabled = isRoot;
+    B('bDelete').disabled = isRoot;
+    B('bFold').disabled = isRoot || !n.children.length;
+    const collapsed = !!n.collapsed && n.children.length > 0;
+    B('bFold').dataset.tip = collapsed ? `Expand branch (${MOD} + /)` : `Collapse branch (${MOD} + /)`;
+    B('bFold').setAttribute('aria-label', collapsed ? 'Expand branch' : 'Collapse branch');
+    B('foldV').style.display = collapsed ? '' : 'none';
+    B('bColorSw').style.setProperty('--sw', isRoot ? INK : g.color);
+  }
+  B('bUndo').disabled = !history.undo.length;
+  B('bRedo').disabled = !history.redo.length;
+  B('bUndo').dataset.tip = `Undo (${MOD} + Z)`;
+  B('bRedo').dataset.tip = `Redo (${MOD} + Shift + Z)`;
+  B('bFit').dataset.tip = `Fit map to screen (${MOD} + 0)`;
+  B('bLayMap').classList.toggle('on', doc.layout !== 'right');
+  B('bLayRight').classList.toggle('on', doc.layout === 'right');
+}
+function select(id, reveal = false) {
+  if (edit && edit.id !== id) finishEdit(true);
+  if (selectedId !== id) {
+    selectedId = id; closeColorPop(); sync(); updateUI();
+    const n = id && nodeById.get(id);
+    $('#sr').textContent = n ? `${n.text || PLACEHOLDER}, level ${depthOf.get(id) + 1}${n.collapsed ? ', collapsed' : ''}` : '';
+  }
+  if (reveal && id) ensureVisible(id);
+}
+
+/* colour popover */
+const colorPop = $('#colorPop'), swatches = $('#swatches');
+for (const p of PALETTE) {
+  const b = document.createElement('button');
+  b.className = 'swatch-btn'; b.style.setProperty('--sw', p.hex);
+  b.setAttribute('aria-label', p.name); b.title = p.name; b.dataset.hex = p.hex;
+  b.addEventListener('click', () => { setColor(selectedId, p.hex); closeColorPop(); viewport.focus({ preventScroll: true }); });
+  swatches.appendChild(b);
+}
+$('#popInherit').addEventListener('click', () => { setColor(selectedId, null); closeColorPop(); viewport.focus({ preventScroll: true }); });
+function openColorPop() {
+  const n = nodeById.get(selectedId); if (!n || n === doc.root) return;
+  const depth = depthOf.get(n.id), g = layout.geo.get(n.id);
+  for (const b of swatches.children) b.classList.toggle('on', b.dataset.hex === (n.color || (depth > 1 ? '' : g.color)));
+  const inh = $('#popInherit');
+  inh.hidden = depth === 1;
+  inh.classList.toggle('on', !n.color);
+  colorPop.classList.add('open');
+  $('#toast').classList.remove('show');
+  const r = B('bColor').getBoundingClientRect(), pw = colorPop.offsetWidth, ph = colorPop.offsetHeight;
+  colorPop.style.left = clamp(r.left + r.width / 2 - pw / 2, 8, innerWidth - pw - 8) + 'px';
+  colorPop.style.top = Math.max(8, r.top - ph - 10) + 'px';
+  (swatches.querySelector('.on') || swatches.firstChild).focus();
+}
+function closeColorPop() { colorPop.classList.remove('open'); }
+document.addEventListener('pointerdown', e => {
+  if (colorPop.classList.contains('open') && !colorPop.contains(e.target) && !B('bColor').contains(e.target)) closeColorPop();
+}, true);
+
+/* toolbar buttons */
+const refocus = () => viewport.focus({ preventScroll: true });
+B('bAddChild').onclick = () => { if (selectedId) addChild(selectedId); };
+B('bAddSib').onclick = () => { if (selectedId) addSibling(selectedId); };
+B('bColor').onclick = () => { colorPop.classList.contains('open') ? closeColorPop() : openColorPop(); };
+B('bFold').onclick = () => { toggleCollapse(selectedId); refocus(); };
+B('bDelete').onclick = () => { deleteTopic(selectedId); refocus(); };
+B('bUndo').onclick = () => { undo(); refocus(); };
+B('bRedo').onclick = () => { redo(); refocus(); };
+B('bZoomIn').onclick = () => zoomCenter(1.25);
+B('bZoomOut').onclick = () => zoomCenter(1 / 1.25);
+B('bZoomReset').onclick = () => zoomAt(1 / view.k, innerWidth / 2, innerHeight / 2, true);
+B('bFit').onclick = () => fitView(true);
+B('bLayMap').onclick = () => { setLayout('map'); refocus(); };
+B('bLayRight').onclick = () => { setLayout('right'); refocus(); };
+
+/* keep keyboard focus on the canvas when toolbar buttons or topic controls are clicked with a mouse */
+for (const b of document.querySelectorAll('.bar .btn')) b.addEventListener('mousedown', e => e.preventDefault());
+nodesLayer.addEventListener('mousedown', e => { if (e.target.closest('.ctl')) e.preventDefault(); });
+
+/* in-topic controls: collapse toggle, hidden-count badge, add button */
+nodesLayer.addEventListener('click', e => {
+  const b = e.target.closest('.ctl'); if (!b) return;
+  e.stopPropagation();
+  const id = b.closest('.node').dataset.id;
+  if (b.dataset.act === 'fold') toggleCollapse(id);
+  else if (b.dataset.act === 'add') { selectedId = id; addChild(id, b.dataset.side); }
+});
+
+/* =========================================================
+   Keyboard
+   ========================================================= */
+function siblingsOnScreen(g) {
+  const p = g.parentId && layout.geo.get(g.parentId);
+  if (!p) return [g];
+  return p.kids.filter(k => k.side === g.side);
+}
+function nearestVert(list, y) {
+  let best = null, d = Infinity;
+  for (const k of list) { const dd = Math.abs(k.y + k.h / 2 - y); if (dd < d) { d = dd; best = k; } }
+  return best;
+}
+function navigate(dir) {
+  const g = selectedId && layout.geo.get(selectedId);
+  if (!g) { select(doc.root.id, true); return; }
+  const cy = g.y + g.h / 2;
+  if (dir === 'left' || dir === 'right') {
+    if (g.kind === 'root') { const k = nearestVert(g.kids.filter(k => k.side === dir), cy); if (k) select(k.id, true); return; }
+    if (g.side === dir) {             // outward: into children
+      if (g.collapsed) { toggleCollapse(g.id); return; }
+      const k = nearestVert(g.kids, cy); if (k) select(k.id, true);
+    } else select(g.parentId, true);  // inward: to parent
+    return;
+  }
+  if (g.kind === 'root') return;
+  const sibs = siblingsOnScreen(g), i = sibs.indexOf(g);
+  const s = sibs[dir === 'up' ? i - 1 : i + 1];
+  if (s) { select(s.id, true); return; }
+  // fall back to the nearest topic at the same level above or below
+  let best = null, bd = Infinity;
+  for (const o of layout.order) {
+    if (o.depth !== g.depth || o.side !== g.side || o === g) continue;
+    const oy = o.y + o.h / 2, dy = dir === 'up' ? cy - oy : oy - cy;
+    if (dy > 0 && dy < bd) { bd = dy; best = o; }
+  }
+  if (best) select(best.id, true);
+}
+
+document.addEventListener('keydown', e => {
+  if (openModalEl) {
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(openModalEl); }
+    else if (e.key === 'Tab') trapFocus(e);
+    return;
+  }
+  const k = e.key, lower = k.length === 1 ? k.toLowerCase() : k;
+  const mod = (e.metaKey || e.ctrlKey) && !(e.ctrlKey && e.altKey);
+  if (mod && lower === 's') { e.preventDefault(); if (edit) finishEdit(true); saveFile(e.shiftKey); return; }
+  if (mod && lower === 'o') { e.preventDefault(); openFile(); return; }
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (t && t.tagName === 'BUTTON' && (k === 'Enter' || k === ' ')) return;
+  if (drawer.classList.contains('open') && k === 'Escape') { closeDrawer(); return; }
+  if (colorPop.classList.contains('open') && k === 'Escape') { closeColorPop(); refocus(); return; }
+  if (mod) {
+    if (lower === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if (lower === 'y') { e.preventDefault(); redo(); }
+    else if (k === '=' || k === '+') { e.preventDefault(); zoomCenter(1.25); }
+    else if (k === '-' || k === '_') { e.preventDefault(); zoomCenter(1 / 1.25); }
+    else if (k === '0') { e.preventDefault(); fitView(true); }
+    else if (k === '/') { e.preventDefault(); if (selectedId) toggleCollapse(selectedId); }
+    return;
+  }
+  if (e.altKey) return;
+  const sel = selectedId && nodeById.get(selectedId);
+  switch (k) {
+    case 'Tab': e.preventDefault(); addChild(sel ? sel.id : doc.root.id); return;
+    case 'Enter': e.preventDefault(); if (!sel) select(doc.root.id, true); else if (sel === doc.root) addChild(sel.id); else addSibling(sel.id); return;
+    case 'Delete': case 'Backspace': if (sel && sel !== doc.root) { e.preventDefault(); deleteTopic(sel.id); } return;
+    case 'F2': case ' ': e.preventDefault(); if (sel) startEdit(sel.id); return;
+    case 'ArrowUp': e.preventDefault(); navigate('up'); return;
+    case 'ArrowDown': e.preventDefault(); navigate('down'); return;
+    case 'ArrowLeft': e.preventDefault(); navigate('left'); return;
+    case 'ArrowRight': e.preventDefault(); navigate('right'); return;
+    case 'Escape': select(null); return;
+    case 'F1': e.preventDefault(); openHelp(); return;
+  }
+  if (k.length === 1 && sel) { e.preventDefault(); startEdit(sel.id, { initial: k }); }
+});
+
+/* =========================================================
+   Pointer: select, pan, drag to move, pinch
+   ========================================================= */
+const pointers = new Map();
+let pan = null, pinch = null, lastTap = { id: null, t: 0 };
+
+viewport.addEventListener('pointerdown', e => {
+  if (e.target === editor || e.target.closest('.ctl')) return;
+  if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+  if (drawer.classList.contains('open')) closeDrawer();
+  stopViewAnim();
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2) { startPinch(); return; }
+  if (pointers.size > 2) return;
+  try { viewport.setPointerCapture(e.pointerId); } catch (_) {}
+  const nodeEl = e.button === 1 ? null : e.target.closest('.node');
+  if (edit && !(nodeEl && nodeEl.dataset.id === edit.id)) finishEdit(true);
+  if (nodeEl && nodeEl.parentNode === nodesLayer && nodeById.has(nodeEl.dataset.id)) {
+    drag = { id: nodeEl.dataset.id, sx: e.clientX, sy: e.clientY, active: false, pid: e.pointerId, target: null };
+  } else {
+    pan = { sx: e.clientX, sy: e.clientY, tx: view.tx, ty: view.ty, moved: false, pid: e.pointerId };
+  }
+});
+viewport.addEventListener('pointermove', e => {
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch) { updatePinch(); return; }
+  if (pan && e.pointerId === pan.pid) {
+    const dx = e.clientX - pan.sx, dy = e.clientY - pan.sy;
+    if (!pan.moved && Math.hypot(dx, dy) > 3) { pan.moved = true; viewport.classList.add('panning'); }
+    if (pan.moved) { view.tx = pan.tx + dx; view.ty = pan.ty + dy; applyView(); }
+    return;
+  }
+  if (drag && e.pointerId === drag.pid) {
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (!drag.active) {
+      if (Math.hypot(dx, dy) < 5) return;
+      if (drag.id === doc.root.id) {   // dragging the central topic pans the canvas
+        pan = { sx: drag.sx, sy: drag.sy, tx: view.tx, ty: view.ty, moved: true, pid: drag.pid };
+        drag = null; viewport.classList.add('panning'); return;
+      }
+      beginDrag();
+    }
+    drag.last = { x: e.clientX, y: e.clientY };
+    moveDrag();
+  }
+});
+viewport.addEventListener('pointerup', onPointerUp);
+viewport.addEventListener('pointercancel', onPointerUp);
+function onPointerUp(e) {
+  pointers.delete(e.pointerId);
+  if (pinch) { if (pointers.size < 2) pinch = null; return; }
+  if (pan && e.pointerId === pan.pid) {
+    viewport.classList.remove('panning');
+    if (!pan.moved && e.type === 'pointerup') select(null);
+    pan = null; return;
+  }
+  if (drag && e.pointerId === drag.pid) {
+    const d = drag; drag = null;
+    if (d.active) { endDrag(d, e.type === 'pointerup'); return; }
+    if (!nodeById.has(d.id) || e.type !== 'pointerup') return;
+    const now = performance.now();
+    if (lastTap.id === d.id && now - lastTap.t < 400) { lastTap = { id: null, t: 0 }; startEdit(d.id); }
+    else { lastTap = { id: d.id, t: now }; select(d.id); }
+  }
+}
+
+function beginDrag() {
+  if (edit) finishEdit(true);
+  closeColorPop();
+  drag.active = true;
+  selectedId = drag.id;
+  const p = shown.get(drag.id), w = toWorld(drag.sx, drag.sy);
+  drag.offX = w.x - p.x; drag.offY = w.y - p.y;
+  const ghost = els.get(drag.id).cloneNode(true);
+  ghost.classList.add('ghost'); ghost.classList.remove('sel', 'drag-src');
+  overlay.appendChild(ghost); drag.ghost = ghost;
+  world.classList.add('dragging');
+  sync(); updateUI();
+  drag.raf = requestAnimationFrame(autoPan);
+}
+function moveDrag() {
+  const w = toWorld(drag.last.x, drag.last.y);
+  drag.gx = w.x - drag.offX; drag.gy = w.y - drag.offY;
+  drag.ghost.style.transform = `translate(${r2(drag.gx)}px,${r2(drag.gy)}px)`;
+  const t = dropTargetAt(w.x, w.y);
+  const prev = drag.target;
+  drag.target = t;
+  if (!prev !== !t || (prev && t && (prev.id !== t.id || prev.mode !== t.mode))) { sync(); showDropLine(t); }
+}
+function autoPan() {
+  if (!drag || !drag.active) return;
+  const { x, y } = drag.last || { x: drag.sx, y: drag.sy }, E = 50, V = 14;
+  let dx = 0, dy = 0;
+  if (x < E) dx = V * (1 - x / E); else if (x > innerWidth - E) dx = -V * (1 - (innerWidth - x) / E);
+  if (y < E) dy = V * (1 - y / E); else if (y > innerHeight - E) dy = -V * (1 - (innerHeight - y) / E);
+  if (dx || dy) { view.tx += dx; view.ty += dy; applyView(); moveDrag(); }
+  drag.raf = requestAnimationFrame(autoPan);
+}
+function dropTargetAt(wx, wy) {
+  let hit = null;
+  for (const g of layout.order) {
+    if (isInside(g.id, drag.id)) continue;
+    const p = shown.get(g.id), pad = 6;
+    if (wx >= p.x - pad && wx <= p.x + g.w + pad && wy >= p.y - pad && wy <= p.y + g.h + pad) hit = g;
+  }
+  if (!hit) return null;
+  if (hit.kind === 'root') return { id: hit.id, mode: 'child', side: doc.layout === 'right' ? 'right' : (wx < 0 ? 'left' : 'right') };
+  const p = shown.get(hit.id), rel = (wy - p.y) / hit.h;
+  if (rel < 0.3) return { id: hit.id, mode: 'before' };
+  if (rel > 0.7) return { id: hit.id, mode: 'after' };
+  return { id: hit.id, mode: 'child' };
+}
+function showDropLine(t) {
+  if (!t || t.mode === 'child') { dropLine.style.display = 'none'; return; }
+  const g = layout.geo.get(t.id), p = shown.get(t.id), gap = gapY(g.depth);
+  const y = t.mode === 'before' ? p.y - gap / 2 : p.y + g.h + gap / 2;
+  Object.assign(dropLine.style, { display: 'block', left: p.x + 'px', top: (y - 1.5) + 'px', width: g.w + 'px', background: g.color });
+}
+function endDrag(d, drop) {
+  cancelAnimationFrame(d.raf);
+  d.ghost.remove();
+  world.classList.remove('dragging');
+  dropLine.style.display = 'none';
+  if (drop && d.target) {
+    // start the move animation from where the topic was dropped
+    const p = shown.get(d.id), dx = d.gx - p.x, dy = d.gy - p.y;
+    for (const [id, q] of shown) if (isInside(id, d.id)) shown.set(id, { x: q.x + dx, y: q.y + dy });
+    moveTopic(d.id, d.target);
+  } else sync();
+}
+function startPinch() {
+  const [a, b] = [...pointers.values()];
+  if (drag && drag.active) endDrag(drag, false);
+  drag = null; pan = null; viewport.classList.remove('panning');
+  pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, k0: view.k, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, tx: view.tx, ty: view.ty };
+}
+function updatePinch() {
+  const [a, b] = [...pointers.values()];
+  if (!a || !b) return;
+  const d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  const k = clamp(pinch.k0 * d / pinch.d0, MIN_K, MAX_K);
+  const wx = (pinch.cx - pinch.tx) / pinch.k0, wy = (pinch.cy - pinch.ty) / pinch.k0;
+  view.k = k; view.tx = cx - wx * k; view.ty = cy - wy * k; applyView();
+}
+viewport.addEventListener('wheel', e => {
+  e.preventDefault();
+  stopViewAnim();
+  if (e.ctrlKey || e.metaKey) {
+    const dy = clamp(e.deltaY * (e.deltaMode === 1 ? 20 : 1), -60, 60);
+    zoomAt(Math.exp(-dy * 0.0045), e.clientX, e.clientY);
+  } else {
+    const m = e.deltaMode === 1 ? 18 : 1;
+    const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX, dy = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
+    view.tx -= dx * m; view.ty -= dy * m; applyView();
+  }
+}, { passive: false });
+viewport.addEventListener('contextmenu', e => { if (e.target !== editor) e.preventDefault(); });
+
+/* =========================================================
+   Saving and opening
+   ========================================================= */
+const titleInput = $('#title'), statusEl = $('#status'), fileInput = $('#fileInput');
+const IN_FRAME = (() => { try { return window.self !== window.top; } catch (_) { return true; } })();
+const CAN_FS = !IN_FRAME && typeof window.showSaveFilePicker === 'function' && typeof window.showOpenFilePicker === 'function';
+const LIB_OK = !!(window.storage && typeof window.storage.get === 'function' && typeof window.storage.set === 'function');
+const LIB_KEY = 'mindmap-library-v1';
+const FILE_TYPES = [{ description: 'Mind map', accept: { 'application/json': ['.json'] } }];
+let library = { maps: [], lastId: null };
+let fileHandle = null, dirty = false, saving = false, autosaveTimer = null, lastAction = '', rev = 0, libWarned = false;
+
+const fileBase = () => (doc.title || 'Mind map').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Mind map';
+const serialize = () => JSON.stringify({ app: 'mindmap', version: 1, title: doc.title, layout: doc.layout, savedAt: new Date().toISOString(), root: doc.root }, null, 2);
+
+function parseDoc(text) {
+  const data = JSON.parse(text);
+  if (!data || typeof data !== 'object' || !data.root || typeof data.root !== 'object') throw new Error('Not a mind map');
+  const seen = new Set();
+  const clean = (n, depth) => {
+    const o = {
+      id: typeof n.id === 'string' && n.id && !seen.has(n.id) ? n.id : uid(),
+      text: typeof n.text === 'string' ? n.text : String(n.text == null ? '' : n.text),
+      children: [],
+    };
+    seen.add(o.id);
+    if (depth > 0 && n.collapsed) o.collapsed = true;
+    if (depth > 0 && typeof n.color === 'string' && /^#[0-9a-f]{6}$/i.test(n.color)) o.color = n.color.toUpperCase();
+    if (depth === 1) o.side = n.side === 'left' ? 'left' : 'right';
+    if (Array.isArray(n.children)) for (const c of n.children) if (c && typeof c === 'object') o.children.push(clean(c, depth + 1));
+    return o;
+  };
+  const root = clean(data.root, 0);
+  root.children.forEach((c, i) => { if (!c.color) c.color = PALETTE[i % PALETTE.length].hex; });
+  // files without side information: split the branches over both sides so each side carries a similar load
+  const sided = Array.isArray(data.root.children) && data.root.children.some(c => c && (c.side === 'left' || c.side === 'right'));
+  if (!sided && root.children.length > 1) {
+    const leaves = n => n.children.length ? n.children.reduce((s, c) => s + leaves(c), 0) : 1;
+    const w = root.children.map(leaves), total = w.reduce((a, b) => a + b, 0);
+    let acc = 0, best = 1, bestDiff = Infinity;
+    for (let k = 1; k < w.length; k++) { acc += w[k - 1]; const diff = Math.abs(total - 2 * acc); if (diff < bestDiff) { bestDiff = diff; best = k; } }
+    root.children.forEach((c, i) => { c.side = i < best ? 'right' : 'left'; });
+  }
+  const title = typeof data.title === 'string' && data.title.trim() ? data.title.trim().slice(0, 120) : 'Untitled map';
+  return { id: uid(), title, layout: data.layout === 'right' ? 'right' : 'map', root };
+}
+
+function setStatus() {
+  let s;
+  if (saving || autosaveTimer) s = 'Saving…';
+  else if (fileHandle) s = dirty ? 'Unsaved changes' : `Saved to ${fileHandle.name}`;
+  else s = dirty ? 'Unsaved changes' : lastAction;
+  statusEl.textContent = s;
+}
+function markDirty() { dirty = true; rev++; scheduleAutosave(); setStatus(); }
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer); autosaveTimer = null;
+  if (!LIB_OK && !fileHandle) return;
+  autosaveTimer = setTimeout(autosaveNow, 900);
+}
+async function autosaveNow() {
+  clearTimeout(autosaveTimer); autosaveTimer = null;
+  if (!dirty) { setStatus(); return; }
+  const r = rev, payload = serialize();
+  saving = true; setStatus();
+  let ok = true;
+  if (LIB_OK) ok = await libSaveCurrent();
+  if (fileHandle) {
+    try { await writeHandle(fileHandle, payload); }
+    catch (err) { ok = false; fileHandle = null; toast('Could not write to the file. Use Save to choose it again.'); }
+  }
+  saving = false;
+  if (ok && r === rev) { dirty = false; if (LIB_OK) lastAction = 'All changes saved'; }
+  setStatus();
+}
+async function flushAutosave() { if (dirty && (LIB_OK || fileHandle)) await autosaveNow(); }
+async function writeHandle(h, text) { const w = await h.createWritable(); await w.write(text); await w.close(); }
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function saveFile(saveAs = false) {
+  if (edit) finishEdit(true);
+  const name = fileBase() + '.mindmap.json';
+  if (CAN_FS) {
+    try {
+      if (!fileHandle || saveAs) fileHandle = await window.showSaveFilePicker({ suggestedName: name, types: FILE_TYPES });
+      const r = rev;
+      saving = true; setStatus();
+      await writeHandle(fileHandle, serialize());
+      saving = false;
+      if (r === rev) dirty = false;
+      setStatus(); toast(`Saved to ${fileHandle.name}`);
+      return;
+    } catch (err) {
+      saving = false; setStatus();
+      if (err && err.name === 'AbortError') return;
+      fileHandle = null;   // fall back to a download below
+    }
+  }
+  download(new Blob([serialize()], { type: 'application/json' }), name);
+  if (!LIB_OK) { dirty = false; lastAction = 'Copy downloaded'; }
+  setStatus();
+  toast(`Saved ${name} to your downloads`);
+}
+async function confirmDiscard() {
+  await flushAutosave();
+  if (!dirty) return true;
+  return confirmDialog({
+    title: 'Discard unsaved changes?',
+    body: 'This map has changes that are not saved to a file. Choose Cancel, then Save, to keep them.',
+    ok: 'Discard changes',
+  });
+}
+async function openFile() {
+  if (edit) finishEdit(true);
+  if (!(await confirmDiscard())) return;
+  if (CAN_FS) {
+    try {
+      const [h] = await window.showOpenFilePicker({ types: FILE_TYPES });
+      const f = await h.getFile();
+      openText(await f.text(), h);
+      return;
+    } catch (err) { if (err && err.name === 'AbortError') return; }
+  }
+  fileInput.value = '';
+  fileInput.click();
+}
+fileInput.addEventListener('change', async () => {
+  const f = fileInput.files && fileInput.files[0];
+  if (f) openText(await f.text(), null);
+});
+async function openText(text, handle) {
+  let d;
+  try { d = parseDoc(text); }
+  catch (_) { toast('This file is not a map from this app. Choose a .json file made with Save.'); return; }
+  await flushAutosave();
+  loadDoc(d, handle);
+  if (LIB_OK) { dirty = true; rev++; scheduleAutosave(); setStatus(); }
+  toast(`Opened ${d.title}`);
+}
+async function newMap() {
+  if (edit) finishEdit(true);
+  if (!(await confirmDiscard())) return;
+  closeDrawer();
+  loadDoc(blankDoc(), null);
+  startEdit(doc.root.id);
+}
+function loadDoc(d, handle = null) {
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  if (edit) { edit = null; editor.classList.remove('on'); }
+  doc = d; reindex();
+  history.undo = []; history.redo = [];
+  fileHandle = handle; dirty = false; lastAction = '';
+  clearTimeout(autosaveTimer); autosaveTimer = null;
+  selectedId = doc.root.id;
+  for (const el of els.values()) el.remove(); els.clear();
+  for (const p of edgeEls.values()) p.remove(); edgeEls.clear();
+  for (const u of ulEls.values()) u.remove(); ulEls.clear();
+  shown = new Map();
+  titleInput.value = doc.title; sizeTitle();
+  document.title = doc.title + ' – Mind map';
+  render(false);
+  fitView(false);
+  setStatus();
+  if (LIB_OK) { library.lastId = doc.id; renderDrawer(); }
+}
+
+/* title */
+function sizeTitle() {
+  mctx.font = `700 15px ${FONT}`;
+  titleInput.style.width = Math.ceil(clamp(mctx.measureText(titleInput.value || ' ').width + 16, 60, 360)) + 'px';
+}
+titleInput.addEventListener('input', () => {
+  doc.title = titleInput.value; sizeTitle();
+  document.title = (doc.title.trim() || 'Untitled map') + ' – Mind map';
+  markDirty();
+});
+titleInput.addEventListener('focus', () => titleInput.select());
+titleInput.addEventListener('blur', () => { if (!titleInput.value.trim()) { doc.title = titleInput.value = 'Untitled map'; sizeTitle(); } });
+titleInput.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); refocus(); } });
+
+/* =========================================================
+   Maps library (only where in-app storage exists)
+   ========================================================= */
+const drawer = $('#drawer');
+async function libLoad() {
+  try {
+    const r = await window.storage.get(LIB_KEY, false);
+    if (r && r.value) {
+      const o = JSON.parse(r.value);
+      if (o && Array.isArray(o.maps)) library = { maps: o.maps.filter(m => m && m.id && m.doc && m.doc.root), lastId: o.lastId || null };
+    }
+  } catch (_) { /* nothing stored yet */ }
+}
+async function libPersist() {
+  try { return !!(await window.storage.set(LIB_KEY, JSON.stringify(library), false)); }
+  catch (err) { console.warn(err); return false; }
+}
+async function libSaveCurrent() {
+  const entry = { id: doc.id, title: doc.title.trim() || 'Untitled map', updated: Date.now(), count: nodeById.size,
+    doc: JSON.parse(JSON.stringify({ title: doc.title, layout: doc.layout, root: doc.root })) };
+  const i = library.maps.findIndex(m => m.id === doc.id);
+  if (i >= 0) library.maps[i] = entry; else library.maps.unshift(entry);
+  library.lastId = doc.id;
+  const ok = await libPersist();
+  if (!ok && !libWarned) { libWarned = true; toast('Could not save to Your maps. Use Save to keep a file.'); }
+  renderDrawer();
+  return ok;
+}
+function relTime(t) {
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) { const h = Math.floor(s / 3600); return `${h} hour${h > 1 ? 's' : ''} ago`; }
+  return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function renderDrawer() {
+  if (!LIB_OK) return;
+  const ul = $('#mapList'); ul.textContent = '';
+  const maps = [...library.maps].sort((a, b) => b.updated - a.updated);
+  if (!maps.length) {
+    const li = document.createElement('li'); li.className = 'empty';
+    li.textContent = 'No saved maps yet. The map you are working on appears here as soon as you change it.';
+    ul.appendChild(li); return;
+  }
+  for (const m of maps) {
+    const li = document.createElement('li');
+    li.className = 'map-item' + (m.id === doc.id ? ' current' : '');
+    const open = document.createElement('button'); open.className = 'map-open';
+    const t = document.createElement('span'); t.className = 'map-title'; t.textContent = m.title || 'Untitled map';
+    const meta = document.createElement('span'); meta.className = 'map-meta';
+    meta.textContent = `${m.count} topic${m.count === 1 ? '' : 's'}, edited ${relTime(m.updated)}`;
+    open.append(t, meta);
+    open.onclick = async () => {
+      if (m.id === doc.id) { closeDrawer(); return; }
+      await flushAutosave();
+      let d; try { d = parseDoc(JSON.stringify(m.doc)); } catch (_) { toast('This map could not be opened.'); return; }
+      d.id = m.id;
+      loadDoc(d); libPersist(); closeDrawer();
+    };
+    const del = document.createElement('button');
+    del.className = 'btn icon'; del.innerHTML = ICON.trash; del.setAttribute('aria-label', `Delete ${m.title}`);
+    del.onclick = async () => {
+      const yes = await confirmDialog({ title: `Delete “${m.title}”?`, body: 'This removes the map from Your maps. Files saved to your computer are not affected.', ok: 'Delete map' });
+      if (!yes) return;
+      library.maps = library.maps.filter(x => x.id !== m.id);
+      if (m.id === doc.id) loadDoc(blankDoc());
+      await libPersist(); renderDrawer();
+    };
+    li.append(open, del); ul.appendChild(li);
+  }
+}
+function openDrawer() { renderDrawer(); drawer.classList.add('open'); drawer.setAttribute('aria-hidden', 'false'); $('#drawerNew').focus(); }
+function closeDrawer() { if (!drawer.classList.contains('open')) return; drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); refocus(); }
+
+/* =========================================================
+   Export: canvas renderer, PNG, PDF
+   ========================================================= */
+function rr(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawBadge(ctx, g) {
+  const right = g.side !== 'left', cy = g.kind === 'l1' ? g.y + g.h / 2 : g.y + g.h;
+  ctx.font = `700 12px ${FONT}`;
+  const label = String(g.hidden), w = Math.max(22, ctx.measureText(label).width + 15), h = 22;
+  const x = right ? g.x + g.w + 5 : g.x - 5 - w;
+  rr(ctx, x + 0.75, cy - h / 2 + 0.75, w - 1.5, h - 1.5, (h - 1.5) / 2);
+  ctx.fillStyle = '#FFFFFF'; ctx.fill();
+  ctx.strokeStyle = g.color; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = g.color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x + w / 2, cy + 0.5);
+}
+function drawMap(ctx, L) {
+  ctx.lineCap = 'round';
+  for (const g of L.order) {
+    if (!g.parentId) continue;
+    const pg = L.geo.get(g.parentId), path = new Path2D(edgeD(pg, pg.x, pg.y, g, g.x, g.y));
+    if (g.depth === 1) { ctx.fillStyle = g.color; ctx.fill(path); }
+    else { ctx.strokeStyle = g.color; ctx.lineWidth = edgeW(g.depth); ctx.stroke(path); }
+  }
+  for (const g of L.order) {
+    if (g.depth < 2) continue;
+    ctx.strokeStyle = g.color; ctx.lineWidth = edgeW(g.depth);
+    ctx.beginPath(); ctx.moveTo(g.x, g.y + g.h); ctx.lineTo(g.x + g.w, g.y + g.h); ctx.stroke();
+  }
+  const metrics = {};
+  for (const g of L.order) {
+    const st = LEVEL[g.kind];
+    if (g.kind === 'root') { rr(ctx, g.x, g.y, g.w, g.h, st.radius); ctx.fillStyle = INK; ctx.fill(); }
+    else if (g.kind === 'l1') {
+      rr(ctx, g.x, g.y, g.w, g.h, st.radius); ctx.fillStyle = tint(g.color); ctx.fill();
+      rr(ctx, g.x + 0.75, g.y + 0.75, g.w - 1.5, g.h - 1.5, st.radius - 0.75);
+      ctx.strokeStyle = g.color; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    ctx.font = fontOf(st);
+    ctx.fillStyle = g.kind === 'root' ? '#FFFFFF' : TEXT;
+    let tx = g.x + st.padX, align = 'left';
+    if (g.kind === 'root' || g.kind === 'l1') { align = 'center'; tx = g.x + g.w / 2; }
+    else if (g.side === 'left') { align = 'right'; tx = g.x + g.w - st.padX; }
+    ctx.textAlign = align;
+    if (!metrics[g.kind]) metrics[g.kind] = ctx.measureText('Hg');
+    const m = metrics[g.kind], asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent;
+    g.lines.forEach((ln, i) => {
+      const top = g.y + st.padT + i * st.lh;
+      if (asc != null && desc != null) { ctx.textBaseline = 'alphabetic'; ctx.fillText(ln, tx, top + (st.lh - (asc + desc)) / 2 + asc); }
+      else { ctx.textBaseline = 'middle'; ctx.fillText(ln, tx, top + st.lh / 2); }
+    });
+    if (g.collapsed) drawBadge(ctx, g);
+  }
+}
+
+const exp = { format: 'png', scale: 2, page: 'a4', bg: 'white', expand: false };
+const MAX_AREA = 16e6, MAX_DIM = 12000;
+const capScale = (s, b) => Math.max(0.05, Math.min(s, Math.sqrt(MAX_AREA / (b.w * b.h)), MAX_DIM / b.w, MAX_DIM / b.h));
+function exportPlan() {
+  const L = computeLayout(doc, { expandAll: exp.expand }), bb = L.bounds, PAD = 40;
+  const b = { x: bb.x - PAD, y: bb.y - PAD, w: bb.w + PAD * 2, h: bb.h + PAD * 2 };
+  if (exp.format === 'png') {
+    const scale = capScale(exp.scale, b);
+    return { L, b, scale, pxW: Math.round(b.w * scale), pxH: Math.round(b.h * scale), capped: scale < exp.scale - 1e-6 };
+  }
+  let pageW, pageH, rect, area = b;
+  if (exp.page === 'fit') {
+    let pp = 0.75; const maxPt = 14400;   // 1 screen pixel = 0.75 pt; PDF pages top out at 200 inches
+    if (b.w * pp > maxPt || b.h * pp > maxPt) pp = Math.min(maxPt / b.w, maxPt / b.h);
+    pageW = b.w * pp; pageH = b.h * pp; rect = { x: 0, y: 0, w: pageW, h: pageH, pp };
+  } else {
+    const [sw, sh] = exp.page === 'a3' ? [841.89, 1190.55] : [595.28, 841.89];
+    const land = b.w >= b.h; pageW = land ? sh : sw; pageH = land ? sw : sh;
+    const M = 24, pp = Math.min((pageW - 2 * M) / b.w, (pageH - 2 * M) / b.h, 1.2);
+    // the image covers the whole page, with the map centred in it
+    const ww = pageW / pp, wh = pageH / pp;
+    area = { x: b.x + b.w / 2 - ww / 2, y: b.y + b.h / 2 - wh / 2, w: ww, h: wh };
+    rect = { x: 0, y: 0, w: pageW, h: pageH, pp };
+  }
+  const scale = capScale(rect.pp * 300 / 72, area);   // aim for 300 dpi on paper
+  return { L, b: area, scale, pageW, pageH, rect, pxW: Math.round(area.w * scale), pxH: Math.round(area.h * scale) };
+}
+function renderExport(plan, bg) {
+  const c = document.createElement('canvas');
+  c.width = plan.pxW; c.height = plan.pxH;
+  const ctx = c.getContext('2d');
+  if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, c.width, c.height); }
+  const sx = plan.pxW / plan.b.w, sy = plan.pxH / plan.b.h;
+  ctx.setTransform(sx, 0, 0, sy, -plan.b.x * sx, -plan.b.y * sy);
+  drawMap(ctx, plan.L);
+  return c;
+}
+async function buildPdf(canvas, plan, pageBg) {
+  const iw = canvas.width, ih = canvas.height;
+  const px = canvas.getContext('2d').getImageData(0, 0, iw, ih).data;
+  let bytes, filter;
+  if (typeof CompressionStream === 'function') {       // lossless: raw RGB + Flate
+    const rgb = new Uint8Array(iw * ih * 3);
+    for (let i = 0, j = 0; i < px.length; i += 4) { rgb[j++] = px[i]; rgb[j++] = px[i + 1]; rgb[j++] = px[i + 2]; }
+    const stream = new Blob([rgb]).stream().pipeThrough(new CompressionStream('deflate'));
+    bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    filter = '/FlateDecode';
+  } else {                                              // older browsers: high-quality JPEG
+    const bin = atob(canvas.toDataURL('image/jpeg', 0.94).split(',')[1]);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    filter = '/DCTDecode';
+  }
+  const enc = new TextEncoder(), parts = [], offs = [];
+  let pos = 0;
+  const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); pos += b.length; };
+  const obj = (n, fn) => { offs[n] = pos; put(`${n} 0 obj\n`); fn(); put('\nendobj\n'); };
+  const f = v => String(Math.round(v * 1000) / 1000);
+  const { pageW, pageH, rect } = plan;
+  let content = '';
+  if (pageBg) { const [r, g, b] = hexRgb(pageBg).map(v => f(v / 255)); content += `${r} ${g} ${b} rg 0 0 ${f(pageW)} ${f(pageH)} re f\n`; }
+  content += `q ${f(rect.w)} 0 0 ${f(rect.h)} ${f(rect.x)} ${f(rect.y)} cm /Im0 Do Q\n`;
+  const cBytes = enc.encode(content);
+  put('%PDF-1.4\n'); put(new Uint8Array([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]));
+  obj(1, () => put('<< /Type /Catalog /Pages 2 0 R >>'));
+  obj(2, () => put('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'));
+  obj(3, () => put(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(pageW)} ${f(pageH)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`));
+  obj(4, () => { put(`<< /Type /XObject /Subtype /Image /Width ${iw} /Height ${ih} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${filter} /Length ${bytes.length} >>\nstream\n`); put(bytes); put('\nendstream'); });
+  obj(5, () => { put(`<< /Length ${cBytes.length} >>\nstream\n`); put(cBytes); put('\nendstream'); });
+  obj(6, () => put(`<< /Title ${pdfStr(doc.title.trim() || 'Mind map')} /Producer (Mind map) /CreationDate (D:${pdfDate()}) >>`));
+  const xref = pos;
+  put('xref\n0 7\n0000000000 65535 f \n');
+  for (let i = 1; i <= 6; i++) put(String(offs[i]).padStart(10, '0') + ' 00000 n \n');
+  put(`trailer\n<< /Size 7 /Root 1 0 R /Info 6 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
+function pdfStr(s) {
+  let h = 'FEFF';
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if (c > 0xFFFF) { const v = c - 0x10000; h += (0xD800 + (v >> 10)).toString(16).padStart(4, '0') + (0xDC00 + (v & 1023)).toString(16).padStart(4, '0'); }
+    else h += c.toString(16).padStart(4, '0');
+  }
+  return `<${h.toUpperCase()}>`;
+}
+function pdfDate() { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`; }
+
+/* export dialog */
+const expModal = $('#exportModal');
+const hasCollapsed = () => [...nodeById.values()].some(n => n.collapsed && n.children.length);
+const fmtN = n => n.toLocaleString('en-US');
+function syncExportUI() {
+  for (const seg of expModal.querySelectorAll('.seg')) for (const b of seg.children) b.classList.toggle('on', String(exp[seg.dataset.opt]) === b.dataset.v);
+  for (const el of expModal.querySelectorAll('[data-for]')) el.hidden = el.dataset.for !== exp.format;
+  $('#expExpand').checked = exp.expand;
+  $('#expExpand').closest('label').hidden = !hasCollapsed();
+  $('#expGo').textContent = exp.format === 'png' ? 'Download PNG' : 'Download PDF';
+}
+function drawChecker(ctx, w, h, s) {
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#E4E9E6';
+  for (let y = 0, r = 0; y < h; y += s, r++) for (let x = r % 2 ? s : 0; x < w; x += 2 * s) ctx.fillRect(x, y, s, s);
+}
+function drawPreview() {
+  if (!expModal.classList.contains('open')) return;
+  const plan = exportPlan(), isPdf = exp.format === 'pdf';
+  const box = $('#previewBox'), pc = $('#preview');
+  const maxW = Math.max(120, box.clientWidth - 28), maxH = innerWidth < 560 ? 200 : 300;
+  const aspect = isPdf ? plan.pageW / plan.pageH : plan.b.w / plan.b.h;
+  let cw, ch;
+  if (maxW / maxH > aspect) { ch = maxH; cw = ch * aspect; } else { cw = maxW; ch = cw / aspect; }
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  pc.style.width = Math.round(cw) + 'px'; pc.style.height = Math.round(ch) + 'px';
+  pc.width = Math.round(cw * dpr); pc.height = Math.round(ch * dpr);
+  const ctx = pc.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, pc.width, pc.height);
+  const bg = exp.bg === 'mist' ? MIST : (exp.bg === 'none' && !isPdf ? null : '#FFFFFF');
+  if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, pc.width, pc.height); } else drawChecker(ctx, pc.width, pc.height, 8 * dpr);
+  if (!isPdf) { const s = pc.width / plan.b.w; ctx.setTransform(s, 0, 0, s, -plan.b.x * s, -plan.b.y * s); }
+  else {
+    const s = pc.width / plan.pageW, k = plan.rect.pp * s;
+    const ox = plan.rect.x * s, oy = (plan.pageH - plan.rect.y - plan.rect.h) * s;
+    ctx.setTransform(k, 0, 0, k, ox - plan.b.x * k, oy - plan.b.y * k);
+  }
+  drawMap(ctx, plan.L);
+  let meta;
+  if (!isPdf) meta = `${fmtN(plan.pxW)} × ${fmtN(plan.pxH)} px` + (plan.capped ? ', reduced to stay within browser limits' : '');
+  else {
+    const mm = v => Math.round(v / 72 * 25.4);
+    const name = exp.page === 'fit' ? 'Custom page' : `${exp.page.toUpperCase()} ${plan.pageW > plan.pageH ? 'landscape' : 'portrait'}`;
+    meta = `${name}, ${mm(plan.pageW)} × ${mm(plan.pageH)} mm`;
+  }
+  $('#expMeta').textContent = meta;
+}
+function openExport() {
+  if (edit) finishEdit(true);
+  syncExportUI(); openModal(expModal);
+  drawPreview();
+  $('#expGo').focus();
+}
+for (const seg of expModal.querySelectorAll('.seg')) seg.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const opt = seg.dataset.opt;
+  exp[opt] = opt === 'scale' ? Number(b.dataset.v) : b.dataset.v;
+  if (exp.format === 'pdf' && exp.bg === 'none') exp.bg = 'white';
+  syncExportUI(); drawPreview();
+});
+$('#expExpand').addEventListener('change', e => { exp.expand = e.target.checked; drawPreview(); });
+$('#expGo').addEventListener('click', async () => {
+  const btn = $('#expGo'); btn.disabled = true; btn.textContent = 'Preparing…';
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const plan = exportPlan();
+    if (exp.format === 'png') {
+      const c = renderExport(plan, exp.bg === 'none' ? null : exp.bg === 'mist' ? MIST : '#FFFFFF');
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      if (!blob) throw new Error('PNG encoding failed');
+      download(blob, fileBase() + '.png');
+      toast('PNG downloaded');
+    } else {
+      const bg = exp.bg === 'mist' ? MIST : '#FFFFFF';
+      const c = renderExport(plan, bg);
+      const blob = await buildPdf(c, plan, exp.bg === 'mist' ? MIST : null);
+      download(blob, fileBase() + '.pdf');
+      toast('PDF downloaded');
+    }
+    closeModal(expModal);
+  } catch (err) {
+    console.error(err);
+    toast('Export failed. Try a lower resolution or a smaller page.');
+  } finally { btn.disabled = false; syncExportUI(); }
+});
+
+/* =========================================================
+   Dialogs, help, toast, file drop
+   ========================================================= */
+let openModalEl = null, modalReturnFocus = null;
+function openModal(el) {
+  closeColorPop();
+  modalReturnFocus = document.activeElement;
+  openModalEl = el; el.classList.add('open');
+}
+function closeModal(el) {
+  el.classList.remove('open');
+  if (openModalEl === el) openModalEl = null;
+  if (el._onClose) { const fn = el._onClose; el._onClose = null; fn(); }
+  const back = modalReturnFocus && document.contains(modalReturnFocus) && modalReturnFocus !== document.body ? modalReturnFocus : viewport;
+  back.focus({ preventScroll: true });
+}
+for (const m of document.querySelectorAll('.scrim')) {
+  m.addEventListener('pointerdown', e => { if (e.target === m) closeModal(m); });
+  for (const b of m.querySelectorAll('[data-close]')) b.addEventListener('click', () => closeModal(m));
+}
+function confirmDialog({ title, body, ok = 'Continue' }) {
+  return new Promise(resolve => {
+    const m = $('#confirmModal');
+    $('#confirmTitle').textContent = title; $('#confirmBody').textContent = body; $('#confirmYes').textContent = ok;
+    let settled = false;
+    const finish = v => { if (!settled) { settled = true; resolve(v); } };
+    m._onClose = () => finish(false);
+    $('#confirmYes').onclick = () => { finish(true); m._onClose = null; closeModal(m); };
+    $('#confirmNo').onclick = () => closeModal(m);
+    openModal(m); $('#confirmNo').focus();
+  });
+}
+function trapFocus(e) {
+  const f = [...openModalEl.querySelectorAll('button:not([disabled]),input:not([disabled])')].filter(x => x.offsetParent !== null);
+  if (!f.length) return;
+  const i = f.indexOf(document.activeElement);
+  const n = e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : (i === f.length - 1 ? 0 : i + 1);
+  e.preventDefault(); f[n].focus();
+}
+function openHelp() {
+  const k = s => s.split('+').map(x => `<kbd>${x.trim()}</kbd>`).join(' + ');
+  const rows = [
+    ['Add a subtopic', k('Tab')],
+    ['Add a topic below', k('Enter')],
+    ['Edit a topic', `Double-click, ${k('Space')}, or start typing`],
+    ['New line in a topic', k('Shift + Enter')],
+    ['Finish editing', `${k('Enter')}, or ${k('Esc')} to cancel`],
+    ['Move between topics', 'Arrow keys'],
+    ['Move a topic', 'Drag it onto a topic, or just above or below one'],
+    ['Collapse or expand', k(`${MOD} + /`)],
+    ['Delete a topic', k('Delete')],
+    ['Undo, redo', `${k(`${MOD} + Z`)}, ${k(`${MOD} + Shift + Z`)}`],
+    ['Save, save as', `${k(`${MOD} + S`)}, ${k(`${MOD} + Shift + S`)}`],
+    ['Open a file', k(`${MOD} + O`)],
+    ['Pan', 'Drag the background, or scroll'],
+    ['Zoom', `${k(MOD)} + scroll, or pinch`],
+    ['Fit the map to the screen', k(`${MOD} + 0`)],
+  ];
+  $('#keys').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+  $('#helpNote').textContent = CAN_FS
+    ? 'Save writes a .json file to your computer. After the first save, every change is written to that file automatically. Reopen it with Open, or drop it onto this window.'
+    : LIB_OK
+      ? 'Maps save automatically under Your maps. Save downloads a .json copy to your computer; reopen it with Open, or drop it onto this window.'
+      : 'Save downloads a .json file to your computer. Reopen it with Open, or drop it onto this window.';
+  openModal($('#helpModal'));
+  $('#helpModal [data-close]').focus();
+}
+let toastTimer = null;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+let fileDragDepth = 0;
+const isFileDrag = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+window.addEventListener('dragenter', e => { if (!isFileDrag(e)) return; e.preventDefault(); fileDragDepth++; $('#filedrop').classList.add('on'); });
+window.addEventListener('dragover', e => { if (isFileDrag(e)) e.preventDefault(); });
+window.addEventListener('dragleave', e => { if (!isFileDrag(e)) return; fileDragDepth = Math.max(0, fileDragDepth - 1); if (!fileDragDepth) $('#filedrop').classList.remove('on'); });
+window.addEventListener('drop', async e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); fileDragDepth = 0; $('#filedrop').classList.remove('on');
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  if (edit) finishEdit(true);
+  if (!(await confirmDiscard())) return;
+  openText(await f.text(), null);
+});
+
+/* top bar and misc wiring */
+B('bExport').onclick = openExport;
+B('bSave').onclick = () => saveFile(false);
+B('bOpen').onclick = openFile;
+B('bNew').onclick = newMap;
+B('bMaps').onclick = () => drawer.classList.contains('open') ? closeDrawer() : openDrawer();
+B('bHelp').onclick = openHelp;
+$('#drawerClose').onclick = closeDrawer;
+$('#drawerNew').onclick = newMap;
+window.addEventListener('beforeunload', e => { if (dirty && !LIB_OK) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAutosave(); });
+window.addEventListener('resize', () => { if (expModal.classList.contains('open')) drawPreview(); });
+
+/* =========================================================
+   Start
+   ========================================================= */
+async function init() {
+  B('bSave').dataset.tip = CAN_FS ? `Save to a file (${MOD} + S)` : `Download a copy to your computer (${MOD} + S)`;
+  B('bOpen').dataset.tip = `Open a map file (${MOD} + O)`;
+  B('bNew').dataset.tip = 'Start a new map';
+  if (LIB_OK) B('bMaps').hidden = false;
+  try {
+    if (document.fonts && document.fonts.load) await Promise.race([
+      Promise.all([document.fonts.load(`700 16px 'Atkinson Hyperlegible'`), document.fonts.load(`400 16px 'Atkinson Hyperlegible'`)]),
+      new Promise(r => setTimeout(r, 1500)),
+    ]);
+  } catch (_) {}
+  let first = null;
+  if (LIB_OK) {
+    await libLoad();
+    const m = library.maps.find(x => x.id === library.lastId) || library.maps[0];
+    if (m) { try { first = parseDoc(JSON.stringify(m.doc)); first.id = m.id; } catch (_) { first = null; } }
+  }
+  loadDoc(first || sampleDoc());
+  refocus();
+  if (document.fonts) document.fonts.addEventListener('loadingdone', () => { wrapCache = new Map(); render(false); });
+}
+init();
+})();
+</script>
+</body>
+</html>
